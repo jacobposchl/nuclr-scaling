@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+.venv/
+.env
+outputs/
+multirun/
+wandb/
+ckpt/
+embs/
+*.pt
+.pytest_cache/
+artifacts/
+.validation-deps/
+.uv-cache/
+.validation-output/
+runs/

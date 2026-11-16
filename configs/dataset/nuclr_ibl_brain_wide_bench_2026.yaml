@@ -1,0 +1,5 @@
+_target_: src.datasets.ibl_benchmark.IBLBrainWideBench2026
+task: null
+train_trial_factor: null
+pretrain_subject_factor: null
+recording_level_qc: neural

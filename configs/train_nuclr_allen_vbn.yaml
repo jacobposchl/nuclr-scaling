@@ -1,0 +1,9 @@
+defaults:
+  - train_nuclr.yaml
+  - override dataset: nuclr_allen_vbn
+  - _self_
+
+batch_size: 16
+
+wandb:
+  project: nuclr_pt_allen_vbn

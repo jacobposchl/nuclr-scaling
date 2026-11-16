@@ -1,0 +1,2 @@
+_target_: src.datasets.allen_vb_benchmark.AllenVisualBehaviorBenchmark
+task: null

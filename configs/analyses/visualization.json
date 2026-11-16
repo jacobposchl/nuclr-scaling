@@ -1,0 +1,16 @@
+{
+  "kind": "visualization",
+  "methods": ["pca", "umap"],
+  "fit_selection": {},
+  "show_selection": null,
+  "colors": [
+    {"field": "brain_region", "type": "categorical", "palette": "tab20"},
+    {"field": "subject_uid", "type": "categorical", "palette": "tab20"},
+    {"field": "cell_type", "type": "categorical", "palette": "tab10"},
+    {"field": "firing_rate_hz", "type": "continuous", "palette": "viridis"}
+  ],
+  "standardize": false,
+  "seed": 42,
+  "umap": {"n_neighbors": 15, "min_dist": 0.1, "metric": "euclidean"},
+  "max_rows": 100000
+}

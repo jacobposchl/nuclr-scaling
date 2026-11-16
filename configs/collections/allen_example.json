@@ -1,0 +1,10 @@
+{
+  "datasets": [
+    {"dataset_id": "allen_visual_behavior", "sessions": ["1044385384"], "split": "unspecified"},
+    {"dataset_id": "allen_visual_coding", "sessions": ["715093703"], "split": "unspecified"}
+  ],
+  "step_seconds": 20.0,
+  "max_windows_per_session": 2,
+  "output": "both",
+  "fingerprint": "stat"
+}

@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "purpose": "Diagnostic GPU validation only; not a scientific evaluation cohort",
+  "partitions": {
+    "pretrain": [
+      {"dataset_id": "allen_visual_behavior", "sessions": ["1044385384"]},
+      {"dataset_id": "allen_visual_coding", "sessions": ["715093703"]}
+    ],
+    "eval": [
+      {"dataset_id": "allen_visual_behavior", "sessions": ["1047969464"]},
+      {"dataset_id": "allen_visual_coding", "sessions": ["719161530"]}
+    ]
+  }
+}

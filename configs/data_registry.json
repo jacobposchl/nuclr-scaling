@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "root": "/vast/projects/dyer1/lab/shared/neural_data",
+  "datasets": {
+    "allen_visual_behavior": {
+      "directory": "allen_visual_behavior_neuropixels_2022/processed",
+      "release": "visual_behavior_2022_rich_processed",
+      "domain": "intervals/blocks/active",
+      "region_key": "structure_acronym",
+      "probe_key": "probe_id",
+      "unit_policy": "all_units_retained_by_source_preprocessing",
+      "notes": "103 files observed. Rich behavior and optotagging metadata. Different preprocessing from the 153-session download-cache derivative."
+    },
+    "allen_visual_coding": {
+      "directory": "allen_visual_coding_neuropixels_2019",
+      "release": "visual_coding_neuropixels_2019",
+      "domain": "domain",
+      "region_key": "area_name",
+      "probe_key": "unit_id_prefix",
+      "unit_policy": "all_units_retained_by_source_preprocessing",
+      "notes": "58 files observed. Unit IDs encode probe/channel/unit. Entire recording domain; existing within-session train/valid/test masks are not a session-level pretraining split."
+    }
+  }
+}

@@ -1,0 +1,15 @@
+defaults:
+  - train_nuclr_allen_multi
+  - _self_
+
+dataset:
+  split_manifest: configs/splits/allen_all_sessions.json
+num_epochs: 50
+batch_size: 4  # Fastest tested safe size on the B200 MIG 45 GB allocation.
+num_workers: 2
+ckpt:
+  every_n_epochs: 10
+  save_last: true
+wandb:
+  mode: disabled
+  name: allen-all-sessions-50-epochs

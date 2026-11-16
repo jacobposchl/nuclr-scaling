@@ -1,0 +1,84 @@
+defaults:
+  - trainer: nuclr_pretrainer
+  - dataset: nuclr_ibl_brain_wide_bench_2026
+  - unit_encoder@model: nuclr
+  - _self_
+
+data_root: ${oc.env:DATA_ROOT, ???}
+
+views:
+  duration: 20.0       # in seconds
+  max_distance: 120.0  # in seconds
+
+train_transform:
+  _target_: torch_brain.transforms.Compose
+  transforms:
+    - _target_: src.transforms.unit_dropout.UnitDropout
+      min_units: 0.5
+    - _target_: src.transforms.drop_qc_neural.DropQCNeuralFailProbes
+
+eval_transform:
+  _target_: torch_brain.transforms.Compose
+  transforms:
+    - _target_: src.transforms.drop_qc_neural.DropQCNeuralFailProbes
+
+loss:
+  _target_: src.losses.nuclr_loss.NuCLRLoss
+  tau: 0.2
+  dcl: true
+  projector: true
+  full_denom: true
+  dim_in: null # set by trainer
+
+num_workers: 25
+pin_memory: false
+persistent_workers: true
+precision: bf16
+seed: 42
+
+# training
+num_epochs: 50
+batch_size: 80
+lr:
+  peak: 5e-4
+  rise: 1
+  min_factor: 1e-2
+wd: 1e-2
+
+val:
+  first: false  # do val before train (for debug)
+  every_n_epochs: 1
+
+gradual_unfreeze:
+  epoch: null
+
+save_embs:
+  enable: true
+  path: embs/  # will save to path/{run_id}.pt if this is a dir
+
+wandb:
+  mode: online  # defaults to WANDB_MODE
+  entity: nuclr_zeroshot
+  project: null
+  name: null
+  dir: wandb
+
+ckpt:
+  enable: false
+  dir: ${oc.env:CKPT_DIR, ckpt/}
+  every_n_epochs: 1
+  save_last: true
+  load_from: null
+  model_only: false
+  resume: true
+  load_ema_in_decoder: false
+
+ddp:
+  force: false
+  master_addr: localhost
+  master_port: null
+
+log_weights: false
+log_grads: false
+debug: null
+

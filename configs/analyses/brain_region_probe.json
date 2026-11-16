@@ -1,0 +1,11 @@
+{
+  "kind": "linear_probe",
+  "target": "brain_region",
+  "group_by": "subject_uid",
+  "test_fraction": 0.2,
+  "seed": 42,
+  "C": 1.0,
+  "max_iter": 1000,
+  "exclude_labels": ["", "root", "void"],
+  "max_rows": 100000
+}

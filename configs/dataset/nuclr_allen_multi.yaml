@@ -1,0 +1,3 @@
+_target_: src.datasets.allen_multi.AllenMultiDataset
+registry: configs/data_registry.json
+split_manifest: ???

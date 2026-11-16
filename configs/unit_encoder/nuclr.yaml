@@ -1,0 +1,12 @@
+_target_: src.models.unit_encoders.nuclr.NuCLR
+latent_step: 1.0   # in seconds
+bin_size: 0.02
+dim: 256
+self_heads: 4
+dim_head: 64
+atn_dropout: 0.0
+lin_dropout: 0.3
+t_layers: 2
+st_layers: 4
+rotate_value: true
+ctx_duration: 20.0

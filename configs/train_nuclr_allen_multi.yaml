@@ -1,0 +1,15 @@
+defaults:
+  - train_nuclr.yaml
+  - override dataset: nuclr_allen_multi
+  - _self_
+
+data_root: /vast/projects/dyer1/lab/shared/neural_data
+batch_size: 16
+
+# Publish checkpoints; extract reusable collections separately with artifacts.cli.
+ckpt:
+  enable: true
+save_embs:
+  enable: false
+wandb:
+  project: nuclr_scaling_allen

@@ -1,0 +1,17 @@
+defaults:
+  - train_nuclr_allen_multi
+  - _self_
+
+# A full epoch on two diagnostic training sessions, with different held-out mice.
+dataset:
+  split_manifest: configs/splits/allen_gpu_smoke.json
+num_epochs: 1
+batch_size: 2
+num_workers: 2
+lr:
+  rise: 0.1
+wandb:
+  mode: disabled
+  name: allen-gpu-one-epoch-validation
+ckpt:
+  dir: .validation-output/allen-gpu-smoke/checkpoints
