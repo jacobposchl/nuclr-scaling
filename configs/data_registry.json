@@ -1,24 +1,362 @@
 {
   "schema_version": 1,
-  "root": "/vast/projects/dyer1/lab/shared/neural_data",
+  "root": "/home/jposchl/data/processed",
   "datasets": {
     "allen_visual_behavior": {
       "directory": "allen_visual_behavior_neuropixels_2022/processed",
-      "release": "visual_behavior_2022_rich_processed",
-      "domain": "intervals/blocks/active",
+      "release": "visual_behavior_2022_all_regions_local",
+      "domain": "domain",
       "region_key": "structure_acronym",
       "probe_key": "probe_id",
       "unit_policy": "all_units_retained_by_source_preprocessing",
-      "notes": "103 files observed. Rich behavior and optotagging metadata. Different preprocessing from the 153-session download-cache derivative."
+      "notes": "103 local sessions with all source-retained brain regions. Sample the full available recording, excluding optotagging blocks. Existing preprocessing ends spikes five minutes before optotagging; discarded source data cannot be recovered by changing this registry.",
+      "optotagging": {
+        "interval_path": "intervals/blocks/optotagging"
+      }
     },
     "allen_visual_coding": {
       "directory": "allen_visual_coding_neuropixels_2019",
-      "release": "visual_coding_neuropixels_2019",
+      "release": "visual_coding_2019_all_regions_local",
       "domain": "domain",
       "region_key": "area_name",
       "probe_key": "unit_id_prefix",
       "unit_policy": "all_units_retained_by_source_preprocessing",
-      "notes": "58 files observed. Unit IDs encode probe/channel/unit. Entire recording domain; existing within-session train/valid/test masks are not a session-level pretraining split."
+      "notes": "58 local sessions with all source-retained brain regions. Unit IDs encode probe/channel/unit. Coarse stimulus_epochs restored from the original Allen NWB stimulus tables. Sample valid recording intervals, excluding optotagging. Four original NWBs lack optotagging timing tables: conservatively stop at the final visual stimulus for those explicitly listed sessions. Other sessions require verified timing metadata. Existing within-session train/valid/test masks are not a session-level pretraining split.",
+      "optotagging": {
+        "source": "Allen public Ecephys NWB processing/optotagging/optogenetic_stimulation start_time and stop_time; retrieved 2026-11-17. Exclude the entire first-pulse to last-pulse block.",
+        "intervals_by_session": {
+          "715093703": [
+            [
+              9207.762040000001,
+              9551.63997
+            ]
+          ],
+          "719161530": [
+            [
+              9224.47063,
+              9574.13147
+            ]
+          ],
+          "721123822": [
+            [
+              9220.52165,
+              9569.47468
+            ]
+          ],
+          "742951821": [
+            [
+              9225.19538,
+              9566.91929
+            ]
+          ],
+          "744228101": [
+            [
+              9224.95041,
+              9570.98697
+            ]
+          ],
+          "746083955": [
+            [
+              9234.878859999999,
+              9585.47419
+            ]
+          ],
+          "750332458": [
+            [
+              9224.53323,
+              9569.99833
+            ]
+          ],
+          "750749662": [
+            [
+              9224.52649,
+              9570.06166
+            ]
+          ],
+          "751348571": [
+            [
+              9224.382520000001,
+              9568.54256
+            ]
+          ],
+          "754312389": [
+            [
+              9228.01268,
+              9574.18775
+            ]
+          ],
+          "754829445": [
+            [
+              9224.7342,
+              9572.30934
+            ]
+          ],
+          "755434585": [
+            [
+              9224.81648,
+              9568.0216
+            ]
+          ],
+          "756029989": [
+            [
+              9224.653390000001,
+              9572.11868
+            ]
+          ],
+          "757216464": [
+            [
+              9224.976990000001,
+              9572.97219
+            ]
+          ],
+          "757970808": [
+            [
+              9224.82036,
+              9573.63576
+            ]
+          ],
+          "758798717": [
+            [
+              9224.77787,
+              9568.7628
+            ]
+          ],
+          "759883607": [
+            [
+              9225.01379,
+              9571.03885
+            ]
+          ],
+          "760345702": [
+            [
+              9224.96415,
+              9575.60245
+            ]
+          ],
+          "760693773": [
+            [
+              9218.93901,
+              9566.03908
+            ]
+          ],
+          "761418226": [
+            [
+              9803.21989,
+              10150.78522
+            ]
+          ],
+          "762120172": [
+            [
+              9803.422859999999,
+              10149.73797
+            ]
+          ],
+          "762602078": [
+            [
+              9802.02755,
+              10148.99273
+            ]
+          ],
+          "763673393": [
+            [
+              9799.78356,
+              10144.988640000001
+            ]
+          ],
+          "766640955": [
+            [
+              9365.613959999999,
+              9712.43409
+            ]
+          ],
+          "767871931": [
+            [
+              9365.63193,
+              9712.48705
+            ]
+          ],
+          "768515987": [
+            [
+              9215.4882,
+              10135.92561
+            ]
+          ],
+          "771160300": [
+            [
+              9215.54349,
+              9561.4386
+            ]
+          ],
+          "771990200": [
+            [
+              9215.438320000001,
+              9558.03832
+            ]
+          ],
+          "773418906": [
+            [
+              9229.7045,
+              9574.789509999999
+            ]
+          ],
+          "774875821": [
+            [
+              9209.47597,
+              9559.05118
+            ]
+          ],
+          "778240327": [
+            [
+              9215.23081,
+              9564.81595
+            ]
+          ],
+          "778998620": [
+            [
+              9208.91113,
+              9553.55631
+            ]
+          ],
+          "779839471": [
+            [
+              9215.615590000001,
+              9560.550640000001
+            ]
+          ],
+          "781842082": [
+            [
+              9215.48889,
+              9564.26402
+            ]
+          ],
+          "786091066": [
+            [
+              9215.34368,
+              9561.81383
+            ]
+          ],
+          "787025148": [
+            [
+              9215.473590000001,
+              9558.27859
+            ]
+          ],
+          "789848216": [
+            [
+              9215.508179999999,
+              9790.27815
+            ]
+          ],
+          "791319847": [
+            [
+              9800.868779999999,
+              10382.194109999999
+            ]
+          ],
+          "793224716": [
+            [
+              9218.4409,
+              9800.41627
+            ]
+          ],
+          "794812542": [
+            [
+              9209.13926,
+              9787.4144
+            ]
+          ],
+          "797828357": [
+            [
+              9801.42498,
+              10378.75014
+            ]
+          ],
+          "798911424": [
+            [
+              9796.623790000001,
+              10375.08404
+            ]
+          ],
+          "799864342": [
+            [
+              9800.88204,
+              10375.127059999999
+            ]
+          ],
+          "816200189": [
+            [
+              9208.77074,
+              10534.4011
+            ]
+          ],
+          "819186360": [
+            [
+              9208.59547,
+              9784.61615
+            ]
+          ],
+          "819701982": [
+            [
+              9208.63139,
+              9788.17643
+            ]
+          ],
+          "821695405": [
+            [
+              9211.23565,
+              9788.96067
+            ]
+          ],
+          "829720705": [
+            [
+              9208.46044,
+              9786.61547
+            ]
+          ],
+          "831882777": [
+            [
+              9208.43747,
+              9790.987570000001
+            ]
+          ],
+          "835479236": [
+            [
+              9208.56364,
+              9783.67848
+            ]
+          ],
+          "839068429": [
+            [
+              9208.77275,
+              9784.33629
+            ]
+          ],
+          "839557629": [
+            [
+              9208.429709999999,
+              9785.68465
+            ]
+          ],
+          "840012044": [
+            [
+              9208.93886,
+              9791.392670000001
+            ]
+          ],
+          "847657808": [
+            [
+              9208.60766,
+              9787.10129
+            ]
+          ]
+        },
+        "end_at_last_stimulus_sessions": [
+          "732592105",
+          "737581020",
+          "739448407",
+          "743475441"
+        ]
+      }
     }
   }
 }

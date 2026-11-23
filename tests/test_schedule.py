@@ -17,6 +17,7 @@ class ScheduleTests(unittest.TestCase):
         trainer.model = torch.nn.Linear(2, 2)
         trainer.ssl_loss = torch.nn.Linear(2, 2)
         trainer.train_loader = range(7)  # 0.3 * 7 = 2.1, rounded to two steps.
+        trainer.accumulation_steps = 1
         trainer.rank = 0
         trainer.to_ckpt = {}
         trainer.logger = SimpleNamespace(info=lambda *args: None)

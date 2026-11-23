@@ -167,6 +167,24 @@ class PipelineTests(unittest.TestCase):
         after = self.registry.fingerprint("behavior", ["1", "2"])
         self.assertNotEqual(before["sources"][0], after)
 
+    def test_stimulus_selection_respects_recording_gaps_and_block_boundaries(self):
+        with h5py.File(self.root / "behavior/1.h5", "r+") as f:
+            f["stimulus_epochs/start"] = [0., 2., 10.]
+            f["stimulus_epochs/end"] = [2., 10., 12.]
+            f["stimulus_epochs/type"] = np.array(
+                ["gratings", "natural_scenes", "gratings"], dtype="S")
+        self.registry.config["datasets"]["behavior"]["stimulus_types"] = ["natural_scenes"]
+        desc = self.registry.describe("behavior", "1")
+        self.assertEqual(desc["intervals"], [(2., 6.), (8., 10.)])
+        self.assertEqual(list(windows(desc["intervals"], 2., 2.)),
+                         [(2., 4.), (4., 6.), (8., 10.)])
+        for start, end in ((0., 2.), (5., 9.), (9., 11.)):
+            with self.assertRaisesRegex(ValueError, "gap"):
+                self.registry.window("behavior", "1", start, end, desc)
+        self.registry.config["datasets"]["behavior"]["stimulus_types"] = []
+        with self.assertRaisesRegex(ValueError, "nonempty"):
+            self.registry.describe("behavior", "1")
+
     def test_mixed_dataset_and_subject_leakage(self):
         manifest = {"schema_version": 1, "partitions": {
             "pretrain": [{"dataset_id": "behavior", "sessions": ["1"]}, {"dataset_id": "coding", "sessions": ["3"]}],

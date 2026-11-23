@@ -1,0 +1,196 @@
+{
+  "session_id": "750332458",
+  "source_url": "https://api.brain-map.org/api/v2/well_known_file_download/1026124724",
+  "retrieved_utc": "2026-11-18T01:57:50.385686+00:00",
+  "source_nwb_bytes": 3240335928,
+  "downloaded_metadata_bytes": 13893632,
+  "local_stimulus_sha256": "188a457cfa1cee6426598df51460b045d65bd980f7dc4f5b52c7c8c2c5cd1b9e",
+  "verified_stimulus_tables": [
+    "drifting_gratings",
+    "gabors",
+    "natural_scenes",
+    "static_gratings"
+  ],
+  "epochs": [
+    {
+      "start": 24.343717748545608,
+      "end": 84.41046774854561,
+      "type": "spontaneous",
+      "stimulus_block": -1.0
+    },
+    {
+      "start": 84.41046774854561,
+      "end": 996.4055187376136,
+      "type": "gabors",
+      "stimulus_block": 0.0
+    },
+    {
+      "start": 996.4055187376136,
+      "end": 1285.3969077485456,
+      "type": "spontaneous",
+      "stimulus_block": -1.0
+    },
+    {
+      "start": 1285.3969077485456,
+      "end": 1583.8963039115679,
+      "type": "flashes",
+      "stimulus_block": 1.0
+    },
+    {
+      "start": 1583.8963039115679,
+      "end": 1585.6477477485455,
+      "type": "spontaneous",
+      "stimulus_block": -1.0
+    },
+    {
+      "start": 1585.6477477485455,
+      "end": 2185.148542400636,
+      "type": "drifting_gratings",
+      "stimulus_block": 2.0
+    },
+    {
+      "start": 2185.148542400636,
+      "end": 2216.1744677485453,
+      "type": "spontaneous",
+      "stimulus_block": -1.0
+    },
+    {
+      "start": 2216.1744677485453,
+      "end": 2816.676107748545,
+      "type": "natural_movie_three",
+      "stimulus_block": 3.0
+    },
+    {
+      "start": 2816.676107748545,
+      "end": 2846.7012377485457,
+      "type": "spontaneous",
+      "stimulus_block": -1.0
+    },
+    {
+      "start": 2846.7012377485457,
+      "end": 3146.952037748545,
+      "type": "natural_movie_one",
+      "stimulus_block": 4.0
+    },
+    {
+      "start": 3146.952037748545,
+      "end": 3176.977097748545,
+      "type": "spontaneous",
+      "stimulus_block": -1.0
+    },
+    {
+      "start": 3176.977097748545,
+      "end": 3776.477932400636,
+      "type": "drifting_gratings",
+      "stimulus_block": 5.0
+    },
+    {
+      "start": 3776.477932400636,
+      "end": 4077.729587748545,
+      "type": "spontaneous",
+      "stimulus_block": -1.0
+    },
+    {
+      "start": 4077.729587748545,
+      "end": 4678.231227748545,
+      "type": "natural_movie_three",
+      "stimulus_block": 6.0
+    },
+    {
+      "start": 4678.231227748545,
+      "end": 4708.2563077485465,
+      "type": "spontaneous",
+      "stimulus_block": -1.0
+    },
+    {
+      "start": 4708.2563077485465,
+      "end": 5397.832372400636,
+      "type": "drifting_gratings",
+      "stimulus_block": 7.0
+    },
+    {
+      "start": 5397.832372400636,
+      "end": 5398.833207748547,
+      "type": "spontaneous",
+      "stimulus_block": -1.0
+    },
+    {
+      "start": 5398.833207748547,
+      "end": 5879.267877748545,
+      "type": "static_gratings",
+      "stimulus_block": 8.0
+    },
+    {
+      "start": 5879.267877748545,
+      "end": 5909.292937748545,
+      "type": "spontaneous",
+      "stimulus_block": -1.0
+    },
+    {
+      "start": 5909.292937748545,
+      "end": 6389.6942777485465,
+      "type": "natural_scenes",
+      "stimulus_block": 9.0
+    },
+    {
+      "start": 6389.6942777485465,
+      "end": 6689.945097748546,
+      "type": "spontaneous",
+      "stimulus_block": -1.0
+    },
+    {
+      "start": 6689.945097748546,
+      "end": 7170.346407748545,
+      "type": "natural_scenes",
+      "stimulus_block": 10.0
+    },
+    {
+      "start": 7170.346407748545,
+      "end": 7200.3714877485445,
+      "type": "spontaneous",
+      "stimulus_block": -1.0
+    },
+    {
+      "start": 7200.3714877485445,
+      "end": 7680.772807748545,
+      "type": "static_gratings",
+      "stimulus_block": 11.0
+    },
+    {
+      "start": 7680.772807748545,
+      "end": 7710.797907748545,
+      "type": "spontaneous",
+      "stimulus_block": -1.0
+    },
+    {
+      "start": 7710.797907748545,
+      "end": 8011.048697748545,
+      "type": "natural_movie_one",
+      "stimulus_block": 12.0
+    },
+    {
+      "start": 8011.048697748545,
+      "end": 8041.073787748545,
+      "type": "spontaneous",
+      "stimulus_block": -1.0
+    },
+    {
+      "start": 8041.073787748545,
+      "end": 8569.014840074591,
+      "type": "natural_scenes",
+      "stimulus_block": 13.0
+    },
+    {
+      "start": 8569.014840074591,
+      "end": 8611.550347748547,
+      "type": "spontaneous",
+      "stimulus_block": -1.0
+    },
+    {
+      "start": 8611.550347748547,
+      "end": 9152.001827748549,
+      "type": "static_gratings",
+      "stimulus_block": 14.0
+    }
+  ]
+}

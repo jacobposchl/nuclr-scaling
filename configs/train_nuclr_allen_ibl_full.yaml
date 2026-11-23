@@ -1,0 +1,47 @@
+defaults:
+  - train_nuclr_allen_multi
+  - _self_
+
+dataset:
+  registry: configs/registries/allen_full_non_opto_ibl.json
+  split_manifest: configs/splits/allen_full_non_opto_ibl_all.json
+
+# Fresh joint run: all stored task periods and regions, excluding Allen optotagging.
+# IBL's supplied pretrain and eval sessions both participate; no held-out evaluation.
+num_epochs: 10
+batch_size: 81       # Global target window pairs per optimizer update.
+micro_batch_size: 3  # Per GPU; 27 accumulation passes per update on one GPU.
+samples_per_recording: null  # Duration-based sampling, with no recording quota.
+num_workers: 2
+precision: bf16
+seed: 42
+
+views:
+  duration: 20.0
+  max_distance: 120.0
+
+lr:
+  peak: 5e-4
+  rise: 1
+  min_factor: 1e-2
+wd: 1e-2
+
+# Keep all source-retained units; apply the existing unit dropout independently per view.
+train_transform:
+  transforms:
+    - _target_: src.transforms.unit_dropout.UnitDropout
+      min_units: 0.5
+eval_transform:
+  transforms: []
+
+ckpt:
+  enable: true
+  load_from: null
+  resume: false
+  every_n_epochs: 1
+  save_last: true
+save_embs:
+  enable: false
+wandb:
+  mode: disabled
+  name: allen-ibl-full-non-opto-10epochs-batch81

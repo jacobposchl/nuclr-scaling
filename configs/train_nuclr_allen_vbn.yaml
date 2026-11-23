@@ -3,6 +3,7 @@ defaults:
   - override dataset: nuclr_allen_vbn
   - _self_
 
+data_root: ${oc.env:DATA_ROOT,/home/jposchl/data/processed}
 batch_size: 16
 
 wandb:

@@ -1,7 +1,7 @@
-"""One pretraining dataset spanning explicit Allen session selections.
+"""One pretraining dataset spanning explicit Allen and IBL session selections.
 
-The existing fixed-window sampler samples available recording time. Dataset
-balancing is deliberately not implied: its policy is recorded as window-based.
+Exposes available recording time without imposing a sampling quota. The trainer
+records its actual window-selection policy in the dataset provenance.
 """
 
 import json
@@ -38,7 +38,7 @@ class AllenMultiDataset:
                     if rid in descriptions:
                         raise ValueError(f"Duplicate or overlapping split session: {rid}")
                     desc = self.registry.describe(dataset, session)
-                    subject = namespace("allen", desc["subject_id"])
+                    subject = desc["subject_uid"]
                     if subject in subject_roles and subject_roles[subject] != role:
                         raise ValueError(f"Subject appears in pretrain and eval: {subject}")
                     subject_roles[subject] = role

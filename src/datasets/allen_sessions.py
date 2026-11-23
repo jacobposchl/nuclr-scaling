@@ -1,4 +1,4 @@
-"""Read small windows from either Allen HDF5 release without loading a session.
+"""Read small windows from the Allen and IBL HDF5 releases lazily.
 
 Shared data are opened read-only. IDs include dataset and session namespaces;
 local IDs and raw metadata remain available for joins. No filtering or session
@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import quote
+from uuid import UUID
 
 import h5py
 import numpy as np
@@ -72,12 +73,40 @@ class AllenRegistry:
         return (self.root / self.spec(dataset_id)["directory"]).resolve()
 
     def sessions(self, dataset_id):
-        return sorted(p.stem for p in self.directory(dataset_id).glob("*.h5"))
+        directory = self.directory(dataset_id)
+        sessions = [p.stem for folder in self.spec(dataset_id).get("subdirectories", ["."])
+                    for p in (directory / folder).glob("*.h5")]
+        if len(set(sessions)) != len(sessions):
+            raise ValueError(f"Duplicate session IDs across source folders: {dataset_id}")
+        return sorted(sessions)
 
     def path(self, dataset_id, session_id):
-        if not str(session_id).isdigit():
-            raise ValueError("Allen session IDs must be numeric")
-        return self.directory(dataset_id) / (str(session_id) + ".h5")
+        session_id = str(session_id)
+        spec = self.spec(dataset_id)
+        id_format = spec.get("session_id_format", "numeric")
+        if id_format == "uuid":
+            try:
+                valid = str(UUID(session_id)) == session_id
+            except ValueError:
+                valid = False
+            if not valid:
+                raise ValueError("IBL session IDs must be canonical UUIDs")
+        elif id_format == "numeric":
+            if not session_id.isdigit():
+                raise ValueError("Allen session IDs must be numeric")
+        else:
+            raise ValueError(f"Unsupported session ID format: {id_format}")
+        directory = self.directory(dataset_id)
+        if "subdirectories" not in spec:
+            return directory / (session_id + ".h5")
+        candidates = [directory / folder / (session_id + ".h5")
+                      for folder in spec["subdirectories"]]
+        matches = [path for path in candidates if path.is_file()]
+        if not matches:
+            raise FileNotFoundError(f"Missing {dataset_id} session: {session_id}")
+        if len(matches) != 1:
+            raise ValueError(f"Duplicate session across source folders: {session_id}")
+        return matches[0]
 
     def fingerprint(self, dataset_id, sessions, mode="stat"):
         if mode not in ("stat", "sha256"):
@@ -116,13 +145,14 @@ class AllenRegistry:
                 if "units/" + key in f
             }
             subject_id = text(f["subject"].attrs["id"])
+            subject_uid = namespace(spec.get("subject_namespace", "allen"), subject_id)
             # A stable sort preserves original order within each probe.
             order = np.argsort(probes, kind="stable")
             rows = []
             for i in order:
                 row = {"dataset_id": dataset_id, "session_id": str(session_id),
                        "session_uid": namespace(dataset_id, session_id),
-                       "subject_id": subject_id, "subject_uid": namespace("allen", subject_id),
+                       "subject_id": subject_id, "subject_uid": subject_uid,
                        "unit_id": local_ids[i], "unit_uid": namespace(dataset_id, session_id, local_ids[i]),
                        "probe_id": probes[i], "probe_uid": namespace(dataset_id, session_id, probes[i]),
                        "brain_region": regions[i]}
@@ -138,10 +168,73 @@ class AllenRegistry:
             spike_end = float(f["spikes/domain/end"][-1])
             intervals = sorted((max(float(a), spike_start), min(float(b), spike_end))
                                for a, b in zip(starts, ends) if max(a, spike_start) < min(b, spike_end))
+            if "stimulus_types" in spec:
+                stimulus_types = spec["stimulus_types"]
+                if (not isinstance(stimulus_types, list) or not stimulus_types
+                        or any(not isinstance(value, str) or not value for value in stimulus_types)):
+                    raise ValueError("stimulus_types must be a nonempty list of stimulus labels")
+                epochs = f["stimulus_epochs"]
+                stimulus_intervals = [(float(a), float(b))
+                                      for a, b, label in zip(epochs["start"][:], epochs["end"][:], epochs["type"][:])
+                                      if text(label) in stimulus_types]
+                # Keep recording gaps and stimulus boundaries: a window must fit in both.
+                intervals = sorted((max(a, c), min(b, d))
+                                   for a, b in intervals for c, d in stimulus_intervals
+                                   if max(a, c) < min(b, d))
             if any(a < previous_end for (_, previous_end), (a, _) in zip(intervals, intervals[1:])):
                 raise ValueError("Sampling intervals overlap")
+            if "optotagging" in spec:
+                exclusion = spec["optotagging"]
+                sources = {"interval_path", "intervals_by_session"} & exclusion.keys()
+                if len(sources) != 1:
+                    raise ValueError("optotagging requires exactly one interval source")
+                if "interval_path" in sources:
+                    path = exclusion["interval_path"]
+                    if path not in f:
+                        raise ValueError(f"Missing optotagging intervals: {path}")
+                    starts, ends = f[path + "/start"][:], f[path + "/end"][:]
+                    if starts.ndim != 1 or ends.shape != starts.shape:
+                        raise ValueError("Invalid optotagging interval arrays")
+                    excluded = np.column_stack((starts, ends))
+                else:
+                    by_session = exclusion["intervals_by_session"]
+                    if str(session_id) in exclusion.get("end_at_last_stimulus_sessions", []):
+                        if str(session_id) in by_session:
+                            raise ValueError("Conflicting optotagging timing and stimulus-end fallback")
+                        # Allen tagging follows visual stimulation. For explicitly listed
+                        # sessions without timings, discard the uncertain recording tail.
+                        stimulus_ends = f["stimulus_epochs/end"][:]
+                        if not len(stimulus_ends) or not np.isfinite(stimulus_ends).all():
+                            raise ValueError("Missing finite stimulus end for optotagging exclusion")
+                        cutoff = float(stimulus_ends.max())
+                        intervals = [(a, min(b, cutoff)) for a, b in intervals if a < cutoff]
+                        excluded = np.empty((0, 2))
+                    else:
+                        if str(session_id) not in by_session:
+                            raise ValueError(f"Missing optotagging intervals for session {session_id}")
+                        excluded = np.asarray(by_session[str(session_id)], dtype=float)
+                        if excluded.shape == (0,):
+                            excluded = excluded.reshape(0, 2)
+                if (excluded.ndim != 2 or excluded.shape[1] != 2
+                        or not np.isfinite(excluded).all()
+                        or np.any(excluded[:, 1] <= excluded[:, 0])):
+                    raise ValueError("Optotagging intervals must have finite, increasing bounds")
+                # Exclude the complete tagging blocks, including time between pulses.
+                # Splitting the domain also constrains the second contrastive view.
+                for start, end in excluded:
+                    remaining = []
+                    for a, b in intervals:
+                        if b <= start or a >= end:
+                            remaining.append((a, b))
+                        else:
+                            if a < start:
+                                remaining.append((a, float(start)))
+                            if end < b:
+                                remaining.append((float(end), b))
+                    intervals = remaining
             return {"rows": rows, "order": order, "intervals": intervals,
-                    "subject_id": subject_id, "num_spikes": len(f["spikes/timestamps"])}
+                    "subject_id": subject_id, "subject_uid": subject_uid,
+                    "num_spikes": len(f["spikes/timestamps"])}
 
     def window(self, dataset_id, session_id, start, end, description=None):
         desc = description or self.describe(dataset_id, session_id)

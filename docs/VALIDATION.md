@@ -234,3 +234,72 @@ batches per epoch. The first 100 steps completed with finite losses; their early
 timing suggests roughly 56 minutes per epoch (still preliminary). No full epoch
 or checkpoint from this run had completed at this check. The detached controller
 continues inside the existing allocation; finishing 50 epochs remains pending.
+
+## Local RTX 5090 validation — November 16, 2026
+
+The user authorized a local batch-size benchmark and one validation epoch on
+`nerdslab-ws02`, using its otherwise idle RTX 5090. No Slurm allocation was opened.
+The runners now accept explicit `--local` execution, while retaining the allocation
+requirement otherwise. Python 3.12.3 in this repository's `.venv` supplies the
+installed requirements, including PyTorch 2.10.0, torch-brain 0.2.0, xformers
+0.0.34, and scikit-learn 1.8.0. The runs used bf16, two loader workers, two numerical
+threads, 20-second views, and the unchanged 10,534,656-parameter encoder.
+
+The local files are visual-area derivatives under `/home/jposchl/data/processed`:
+103 Behavior sessions with 29,122 units and 58 Coding sessions with 17,784 units.
+Both datasets provide explicit probe IDs. These populations differ from the
+earlier full-population cluster validation. There are 44,263 complete available
+20-second windows; the sampler reports 52.69 seconds in shorter intervals that
+cannot supply a full window.
+
+Startup exposed a configuration-logging bug: shell `${...}` expressions in a
+Git diff were parsed as OmegaConf interpolation. Git metadata now remains a plain
+dictionary. Both focused regression tests passed, covering literal shell expressions
+and unavailable Git metadata.
+
+### Batch-size comparison
+
+Each candidate ran a forward/backward/AdamW stress step with all 580 retained
+neurons from the largest local population, Behavior session `1119946360`, in
+both views with no unit dropout. A fresh model then trained for one epoch on
+the two diagnostic sessions. Candidate weights were discarded. GPU memory below
+is peak tensor allocation during the stress step, not allocator reservation.
+
+| Batch | Stress peak GiB | Diagnostic window pairs/second | Result |
+| --- | --- | --- | --- |
+| 2 | 7.16 | 75.6 | Passed |
+| 4 | 14.16 | 81.5 | Passed |
+| 6 | 21.09 | 85.7 | Selected |
+| 7 | 24.60 | 84.4 | Passed |
+| 8 | 28.08 | 85.2 | Passed, below the 15% headroom criterion |
+| 12 | — | — | Out of memory |
+
+Batch 6 retained 32.7% of the CUDA-reported 31.32 GiB capacity in the stress
+test, with 22.40 GiB peak allocator reservation. Throughput differences among
+6/7/8 were small in this short benchmark; 6 provides greater memory headroom.
+Sizes 9–11 were not tested, so this does not establish an exact maximum batch.
+The mixed and full Allen presets now default to 6. Results are in
+`.validation-output/rtx5090-batch-sweep-20261116-run2/summary.json`.
+
+### Full one-epoch result
+
+`runs/allen-rtx5090-one-epoch-20261116` completed one epoch across all 161 sessions
+at batch 6, with 0.1 epoch of warmup. It did not start the normal 50-epoch run.
+
+- 7,377 optimizer steps and 44,262 sampled window pairs; the final incomplete
+  batch dropped one window.
+- Epoch time, including the rolling checkpoint save: **623.86 seconds (10m 24s)**.
+- Mean first/last 100 training losses: **3.6581 → 2.0835**; all losses finite.
+- Peak allocated GPU memory: **12.46 GiB**; peak reserved memory: **28.15 GiB**.
+  Variable population sizes increased allocator reservation beyond the stress
+  test's reservation. No out-of-memory error occurred during the full epoch.
+- Peak/final learning rates: **5e-4 / 5e-6**.
+- Saved model and optimizer tensors were finite. All 112 model state tensors
+  differed from the seeded initialization.
+- Production resume restored model, projector, optimizer, scheduler, and progress
+  exactly. No additional optimizer step was taken after restoring.
+
+The report is `runs/allen-rtx5090-one-epoch-20261116/validation.json`; the checkpoint
+is `runs/allen-rtx5090-one-epoch-20261116/checkpoints/cxn358x8/last.pt`.
+This validates local training, memory capacity, and checkpoint restoration. All
+sessions participated in pretraining; no held-out scientific score was measured.

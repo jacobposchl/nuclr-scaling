@@ -1,4 +1,4 @@
-"""Explicit CLI; all extraction and analysis commands in this scaffold use CPU."""
+"""Extract embeddings on CPU or an explicit GPU; analyze saved collections on CPU."""
 
 import argparse
 import json

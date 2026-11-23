@@ -14,13 +14,14 @@ from torch_brain.samplers import (
 )
 
 from .base import Trainer
+from .gradient_accumulation import GradientAccumulator, pretraining_batch_settings
 from src.utils import (
     move_to_device,
     get_num_params,
     human_readable,
     expand_path,
 )
-from src.samplers import DistributedSamplerWrapper
+from src.samplers import DistributedSamplerWrapper, RecordingBalancedWindowSampler
 
 from src.datasets.constrastive_wrapper import ContrastiveDatasetWrapper
 from src.utils.emb_evaluator import EmbeddingCollector
@@ -34,10 +35,19 @@ class NuCLRPreTrainer(Trainer):
         return result
 
     def setup(self, ckpt: dict | None):
+        # Reject invalid batch settings before building the model or loading data.
+        self.micro_batch_size, self.accumulation_steps = pretraining_batch_settings(
+            self.cfg, self.world_size
+        )
         self.logger.info(f"Trainer: {self.__class__}")
 
         if ckpt is not None:
             self.ckpt_cfg = DictConfig(ckpt["cfg"])
+            if self.cfg.ckpt.resume:
+                for key in ("batch_size", "micro_batch_size"):
+                    if self.cfg.get(key) != self.ckpt_cfg.get(key):
+                        raise ValueError(f"Cannot change {key} when resuming optimizer state; "
+                                         "use ckpt.resume=false for a new run")
 
         self.setup_model(ckpt)
         self.setup_ssl_loss(ckpt)
@@ -57,41 +67,46 @@ class NuCLRPreTrainer(Trainer):
         if self.doing_eval:
             self.train_collector.reset()
 
-        for X in self.logger.get_pbar(self.train_loader, prefix="train"):
+        accumulator = GradientAccumulator(
+            self.optimizer, weighted=self.cfg.get("micro_batch_size") is not None
+        )
+        for batch_index, X in enumerate(self.logger.get_pbar(self.train_loader, prefix="train"), 1):
             # All ranks must agree before entering DDP forward/backward.
             usable = torch.tensor(int(X is not None), device=self.device)
             if dist.is_initialized():
                 dist.all_reduce(usable, op=dist.ReduceOp.MIN)
             if not usable.item():
                 self.logger.warn("Skipping batch: at least one rank has no usable views")
-                continue
-            with torch.autocast(device_type="cuda", dtype=self.precision.dtype):
-                X = move_to_device(X, self.device)
-                z = self.model(**X["model_inputs"])
-                assert torch.isfinite(z).all()
+            else:
+                with torch.autocast(device_type=self.device.type, dtype=self.precision.dtype):
+                    X = move_to_device(X, self.device)
+                    z = self.model(**X["model_inputs"])
+                    assert torch.isfinite(z).all()
 
-                loss, loss_dict = self.ssl_loss(
-                    x=z,
-                    seqlen=X["unit_seqlen"],
-                    unit_ids=X["unit_ids"],
-                    probe_ids=X["probe_ids"],
-                    prefix="train/",
-                )
-                assert torch.isfinite(loss).all()
+                    loss, loss_dict = self.ssl_loss(
+                        x=z,
+                        seqlen=X["unit_seqlen"],
+                        unit_ids=X["unit_ids"],
+                        probe_ids=X["probe_ids"],
+                        prefix="train/",
+                    )
+                    assert torch.isfinite(loss).all()
 
-            if self.doing_eval:
-                self.train_collector.update(z, X["unit_ids"])
+                if self.doing_eval:
+                    self.train_collector.update(z, X["unit_ids"])
+                accumulator.backward(loss, loss_dict)
 
-            loss.backward()
-            self.optimizer.step()
-            self.lr_scheduler.step()
-            self.optimizer.zero_grad()
-
-            self.logger.log_dict(loss_dict)
-            self.logger.log("Loss", loss.item(), pbar=True, wandb=False)
-            self.log_lr()
-            self.push_logs()
-            self.train_step += 1
+            if batch_index % self.accumulation_steps == 0 or batch_index == len(self.train_loader):
+                logs = accumulator.step()
+                if logs is None:
+                    self.logger.warn("Skipping optimizer update: no usable loss contributions")
+                    continue
+                self.lr_scheduler.step()
+                self.logger.log_dict(logs)
+                self.logger.log("Loss", logs["train/loss"], pbar=True, wandb=False)
+                self.log_lr()
+                self.train_step += 1
+                self.push_logs()
 
     @torch.inference_mode()
     def val_epoch(self):
@@ -254,9 +269,16 @@ class NuCLRPreTrainer(Trainer):
         ]
         self.optimizer = torch.optim.AdamW(params, lr=self.cfg.lr.peak)
 
-        steps_per_epoch = len(self.train_loader)
+        steps_per_epoch = (len(self.train_loader) + self.accumulation_steps - 1) // self.accumulation_steps
+        self.optimizer_steps_per_epoch = steps_per_epoch
         if steps_per_epoch == 0:
             raise ValueError("Training loader is empty; reduce batch_size or check data windows")
+        remainder = len(self.train_loader) % self.accumulation_steps
+        if remainder:
+            self.logger.warn(
+                f"The final optimizer update in each epoch uses {remainder} micro-batches "
+                f"instead of {self.accumulation_steps}; gradients use their actual loss weight."
+            )
         # Fractional epochs are useful for short diagnostic runs. SequentialLR
         # switches/reset schedulers at integer optimizer-step milestones.
         warmup_steps = round(self.cfg.lr.rise * steps_per_epoch)
@@ -304,8 +326,10 @@ class NuCLRPreTrainer(Trainer):
         self.logger.info(f"LR Scheduler: {self.lr_scheduler}")
 
     def setup_train_loader(self):
-        if self.cfg.batch_size < self.world_size or self.cfg.batch_size % self.world_size:
-            raise ValueError("batch_size must be positive and divisible by world_size")
+        self.micro_batch_size, self.accumulation_steps = pretraining_batch_settings(
+            self.cfg, self.world_size
+        )
+        quota = self.cfg.get("samples_per_recording")
         base_ds = instantiate(
             self.cfg.dataset,
             root=self.cfg.data_root,
@@ -315,6 +339,11 @@ class NuCLRPreTrainer(Trainer):
         )
         if getattr(base_ds, "provenance", None) is not None:
             from omegaconf import OmegaConf
+            if quota is not None:
+                base_ds.provenance.update(
+                    sampling="fixed_samples_per_recording_without_replacement",
+                    samples_per_recording=quota,
+                )
             # Snapshot the actual selections, not just a mutable manifest path.
             OmegaConf.update(self.cfg, "data_provenance", base_ds.provenance, force_add=True)
         ds = ContrastiveDatasetWrapper(
@@ -326,13 +355,24 @@ class NuCLRPreTrainer(Trainer):
             seed=self.cfg.seed,
         )
 
-        sampler = DistributedSamplerWrapper(
-            RandomFixedWindowSampler(
+        if quota is None:
+            window_sampler = RandomFixedWindowSampler(
                 sampling_intervals=ds.get_sampling_intervals(),
                 window_length=self.model.ctx_duration,  # ty:ignore[invalid-argument-type]
                 generator=torch.Generator().manual_seed(self.cfg.seed),
-            ),
-            drop_last=True,
+            )
+        else:
+            window_sampler = RecordingBalancedWindowSampler(
+                sampling_intervals=ds.get_sampling_intervals(),
+                window_length=self.model.ctx_duration,
+                samples_per_recording=quota,
+                seed=self.cfg.seed,
+            )
+            if len(window_sampler) % self.world_size:
+                raise ValueError("Exact recording quotas require the sample total to be divisible by world_size")
+        sampler = DistributedSamplerWrapper(
+            window_sampler,
+            drop_last=quota is None,
         )
 
         has_workers = self.cfg.num_workers > 0
@@ -340,9 +380,9 @@ class NuCLRPreTrainer(Trainer):
             dataset=ds,
             sampler=sampler,
             collate_fn=partial(ds.collate, two_view=True),
-            batch_size=self.cfg.batch_size // self.world_size,
+            batch_size=self.micro_batch_size,
             num_workers=self.cfg.num_workers,
-            drop_last=True,
+            drop_last=quota is None,
             pin_memory=self.cfg.pin_memory,
             persistent_workers=self.cfg.persistent_workers if has_workers else False,
             multiprocessing_context=mp.get_context("fork") if has_workers else None,
@@ -352,6 +392,17 @@ class NuCLRPreTrainer(Trainer):
             f", {len(ds.get_unit_ids())} units"
             f", {len(loader)} batches per epoch."
         )
+        self.logger.info(
+            f"Batch size: {self.cfg.batch_size} window pairs per optimizer update; "
+            f"{self.micro_batch_size} per GPU per forward pass; "
+            f"{self.accumulation_steps} accumulation step(s)."
+        )
+        remainder = len(sampler) % self.micro_batch_size
+        if self.cfg.get("micro_batch_size") is not None and not loader.drop_last and remainder:
+            self.logger.warn(
+                f"The final data-loader batch has {remainder} window pairs per GPU "
+                f"instead of {self.micro_batch_size}; the final optimizer update is smaller."
+            )
 
         self.train_dataset = ds
         self.train_loader = loader

@@ -58,7 +58,10 @@ class DistributedSamplerWrapper(torch.utils.data.Sampler):
         return indices[self.rank : total_size : self.num_replicas]
 
     def __len__(self):
-        return len(self._get_indices())  # ty:ignore[invalid-argument-type]
+        total = len(self.sampler)
+        if self.drop_last:
+            return total // self.num_replicas
+        return max(0, (total - self.rank + self.num_replicas - 1) // self.num_replicas)
 
     def __iter__(self):
         indices = self._get_indices()

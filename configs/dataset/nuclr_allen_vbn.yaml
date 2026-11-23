@@ -1,2 +1,3 @@
 _target_: src.datasets.allen_vb_benchmark.AllenVisualBehaviorBenchmark
 task: null
+dirname: allen_vbn_2022_vis_only

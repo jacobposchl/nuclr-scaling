@@ -125,6 +125,9 @@ class NuCLRLoss(nn.Module):
         loss = loss_numer + loss_denom + x.sum() * 0.0
 
         log_dict = {
+            # A rank-mean count, matching the denominator used above. This
+            # weights micro-batches by their actual contribution to the loss.
+            f"{prefix}loss_weight": total_matches.item(),
             f"{prefix}loss_numer": loss_numer.item(),
             f"{prefix}loss_denom": loss_denom.item(),
             f"{prefix}loss": loss.item(),

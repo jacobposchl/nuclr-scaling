@@ -6,39 +6,64 @@ The workflow separates three reusable products:
 2. **Collection:** a specific checkpoint applied to particular data and windows.
 3. **Analysis:** a particular question and protocol applied to one or more collections.
 
-The scaffold currently supports CPU extraction, unit averages, window embeddings,
+The scaffold currently supports CPU or explicit GPU extraction, unit averages, window embeddings,
 grouped PCA/UMAP visualization, and a linear classification probe with held-out subjects or
 sessions. Temporal behavior decoding, dataset balancing, and a comparison dashboard
 are future extensions. The existing GPU training entry point remains separate.
 
 ## Dataset choices
 
-The initial registry is `configs/data_registry.json`. Paths are relative to
-`/vast/projects/dyer1/lab/shared/neural_data`; `--root` can override this location.
+The registry is `configs/data_registry.json`. Paths are relative to
+`/home/jposchl/data/processed`; `--root` can override this location.
 
 | Registry ID | Selected directory | Observed sessions | Sampling domain |
 | --- | --- | --- | --- |
-| `allen_visual_behavior` | `allen_visual_behavior_neuropixels_2022/processed` | 103 | Active behavior, intersected with spike bounds |
-| `allen_visual_coding` | `allen_visual_coding_neuropixels_2019` | 58 | Recording domain, intersected with spike bounds |
+| `allen_visual_behavior` | `allen_vbn_2022_vis_only` | 103 | Full available recording, excluding optotagging |
+| `allen_visual_coding` | `allen_vc_2019_vis` | 58 | Valid recording intervals, excluding optotagging and uncertain tails |
 
-The Behavior folders have different roles:
+The local files contain the same session IDs as the all-session manifest, but
+retain visual-area populations. They are distinct derivatives from the full
+populations used in the historical cluster checks in `VALIDATION.md`. The registry
+records local release names so the earlier population and throughput measurements
+are not implicitly attributed to these files. Behavior retains active/passive
+intervals, detailed unit QC, brain-region names, and optotagging-related metadata.
 
-- `allen_vbn_2022` is a symlink to `allen_visual_behavior_neuropixels`.
-- `allen_visual_behavior_neuropixels` is an AllenSDK download cache. Its nested
-  `processed/allen_vbn_2022` derivative has 153 sessions. The sampled file has
-  `stimulus_epochs` and a relatively small unit metadata table, rather than the
-  active-block/behavior schema expected by the Zen benchmark adapter.
-- `allen_visual_behavior_neuropixels_2022/processed` is a distinct, 103-session
-  derivative. Its sampled file has behavior, active/passive intervals, detailed
-  unit QC, brain-region names, and optotagging-related fields. It is the initial
-  choice because it supports the intended follow-up analyses. Its processing
-  history and cohort differ from the 153-session derivative; they are not
-  interchangeable aliases or independent datasets to combine.
+The default registry now permits every task period, including active behavior,
+passive replay, spontaneous activity, gratings, and movies where available. All
+intervals are intersected with stored spike bounds; windows cannot cross gaps or
+optotagging blocks, including the second view of a contrastive training pair.
+Behavior uses its stored `intervals/blocks/optotagging` boundaries. These files
+already end five minutes before tagging, so changing the domain cannot recover
+the missing end of passive replay.
+
+Coding's processed files lack optotagging timings. The registry embeds the full
+first-pulse to last-pulse blocks recovered from 54 original Allen NWBs on
+2026-11-17. Those 54 processed recordings already end at least five minutes before
+tagging. Four original NWBs also lack the timing table: `732592105`, `737581020`,
+`739448407`, and `743475441`. For those explicitly listed sessions, sampling stops
+at the final visual stimulus, conservatively excluding the uncertain tail.
+This uses Allen's documented protocol that
+[optotagging occurs after visual stimulation](https://allensdk.readthedocs.io/en/latest/_static/examples/nb/ecephys_optotagging.html).
+Missing timing metadata for any other configured session is an error, not an
+implicit claim that tagging was absent. The recovered boundaries live inside the
+registry so training snapshots remain self-contained and need no network access.
+
+The per-session counts and timing sources are in
+`results/sampling/allen_full_recording_window_counts.csv`. Window counts sum
+`floor(interval_seconds / 20)` over allowed intervals, matching the current
+uncapped epoch sampler. A sample produces two views, not two optimizer updates.
+The full training preset now selects exactly 300 of those candidate windows per
+recording per epoch, without replacement. New jitter and selections are seeded
+by epoch. Partial batches are retained to preserve the quota. Sessions with
+fewer than 300 candidates are rejected, not oversampled. The available-window
+counts in the CSV describe capacity before applying this quota.
+The completed 10-epoch run retains its frozen active-only Behavior registry and
+is unaffected by these new defaults.
 
 The new adapters retain all units already present in each processed source.
-They do not claim identical upstream QC across releases. Coding probe IDs are
-parsed from its validated `probe/channel/unit` identifier format. Behavior uses
-its explicit probe IDs. Units are grouped by probe with spike indices remapped.
+They do not claim identical upstream QC across releases. Both local datasets use
+their explicit `units/probe_id` field; local Coding unit IDs do not encode probes.
+Units are grouped by probe with spike indices remapped.
 Local identifiers are preserved alongside globally namespaced unit, session,
 and probe IDs. Subject grouping uses Allen subject IDs across both datasets.
 
@@ -50,6 +75,14 @@ absent labels and `wt` become unknown. It is not a comprehensive cell taxonomy.
 
 The source files remain read-only. The adapter reads only the requested spike
 window using binary search of sorted timestamps; it does not load whole recordings.
+
+For task-specific pooling, use a separate registry passed with `--registry`.
+Behavior passive replay uses `"domain": "intervals/blocks/passive"`. Coding
+natural scenes uses `"domain": "domain"` with `"stimulus_types": ["natural_scenes"]`;
+this intersects the labeled stimulus blocks with valid recording intervals and
+spike bounds. Select only sessions containing the requested stimulus (32 local
+Coding sessions have natural scenes). Complete windows stay within each resulting
+interval. These extraction settings do not change the training configuration.
 
 ## Storage and cache behavior
 
@@ -120,7 +153,11 @@ produce an unknown rate, rather than retaining a rate from different windows.
 Do not run Python, extraction, tests, hashing of datasets, or analyses on the
 login node. The following commands assume a correctly installed environment
 **inside an already allocated CPU job**; they do not request an allocation.
-No command in the collection CLI uses CUDA.
+Extraction defaults to float32 on CPU. In an authorized GPU environment, set
+`"device": "cuda"` in the collection recipe and select the GPU with
+`CUDA_VISIBLE_DEVICES`. This uses bf16 inference, saves float32 embeddings, and
+accumulates session means in float64. Device and inference precision are recorded
+in the collection identity. Analyses still run on CPU.
 
 Inspect headers without loading all spike arrays:
 
@@ -264,16 +301,16 @@ analysis commands use JSON recipes. The training presets currently are:
 | --- | --- | --- | --- |
 | `train_nuclr` | Original IBL benchmark baseline | 80 | Off |
 | `train_nuclr_allen_vbn` | Original Zen Allen Behavior adapter and splits | 16 | Off |
-| `train_nuclr_allen_multi` | New registry-backed Behavior 2022 and/or Coding 2019 | 16 | On |
+| `train_nuclr_allen_multi` | New registry-backed Behavior 2022 and/or Coding 2019 | 6 | On |
 | `train_nuclr_allen_smoke` | One-epoch diagnostic, two training sessions | 2 | On |
-| `train_nuclr_allen_full` | All 161 sessions, no subject holdout, 50 epochs | 4 | Every 10 epochs + rolling last |
+| `train_nuclr_allen_full` | All 161 sessions, 300 samples/recording/epoch, 10 epochs | 8 | Epoch 10 + rolling last |
 
 The legacy Allen preset does not automatically adopt the new registry or the
 chosen 2022 directory. Use `train_nuclr_allen_multi` for the current datasets,
 including a Behavior-only or Coding-only baseline through its split manifest.
 The selected combined cohort is `configs/splits/allen_all_sessions.json`: all 103
 Behavior 2022 and 58 Coding 2019 sessions, with an empty evaluation partition.
-The full preset uses 50 epochs, 20-second views, peak learning rate `5e-4`, and
+The full preset uses 10 epochs, 20-second views, peak learning rate `5e-4`, and
 the 256-dimensional encoder. The smoke preset uses one epoch. YAML options can
 be overridden at launch.
 
@@ -305,10 +342,12 @@ raises an error. `pretrain` and `eval` are session partitions; the trainer's
 `train+val` argument does not mix them. Source within-session masks are not used
 by this configuration.
 
-Sampling currently follows available fixed windows, so longer recordings and
-larger datasets contribute more samples. It is **not dataset-balanced**. Dataset
-balancing is a separate experimental choice to add deliberately. Second-view
-sampling now respects gaps in the selected domains. This configuration saves
+The full preset uses `samples_per_recording: 300` for equal recording quotas,
+giving 48,300 samples and 6,038 updates per epoch, including a final batch of four.
+It is **not dataset-balanced**: Behavior contributes 30,900 samples and Coding
+17,400. Other presets default to `samples_per_recording: null`, which samples
+all available fixed windows. Second-view sampling respects gaps and optotagging
+exclusions in the selected domains. This configuration saves
 checkpoints and disables the old automatic `.pt` embedding dump; collection
 extraction is the separate post-training stage described above.
 

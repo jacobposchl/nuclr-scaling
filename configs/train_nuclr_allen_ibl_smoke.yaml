@@ -1,0 +1,31 @@
+defaults:
+  - train_nuclr_allen_multi
+  - _self_
+
+dataset:
+  registry: configs/registries/allen_passive_natural_scenes_ibl.json
+  split_manifest: configs/splits/allen_passive_natural_scenes_ibl_all.json
+
+# All stored IBL pretrain and eval sessions participate; no held-out evaluation.
+# Allen uses passive replay (VB) and natural scenes (VC), with optotagging excluded.
+num_epochs: 1
+batch_size: 3
+samples_per_recording: null
+num_workers: 2
+lr:
+  rise: 0.1
+
+# Use source-retained units without adding a quality/region filter.
+train_transform:
+  transforms:
+    - _target_: src.transforms.unit_dropout.UnitDropout
+      min_units: 0.5
+eval_transform:
+  transforms: []
+
+ckpt:
+  every_n_epochs: 1
+  save_last: true
+wandb:
+  mode: disabled
+  name: allen-ibl-all-sessions-unbalanced-1epoch

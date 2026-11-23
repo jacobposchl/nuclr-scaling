@@ -4,12 +4,13 @@ defaults:
 
 dataset:
   split_manifest: configs/splits/allen_all_sessions.json
-num_epochs: 50
-batch_size: 4  # Fastest tested safe size on the B200 MIG 45 GB allocation.
+num_epochs: 10
+batch_size: 8
+samples_per_recording: 300
 num_workers: 2
 ckpt:
-  every_n_epochs: 10
+  every_n_epochs: 1
   save_last: true
 wandb:
   mode: disabled
-  name: allen-all-sessions-50-epochs
+  name: allen-full-recordings-300-per-recording-10epochs

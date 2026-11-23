@@ -1,7 +1,7 @@
 """Benchmark one diagnostic epoch per batch size, plus a worst-population step.
 
-All execution belongs inside an existing GPU allocation. Benchmark weights are
-discarded; the full run starts fresh. The generated split uses every source session.
+Use an existing GPU allocation, or explicitly select an authorized local GPU.
+Benchmark weights are discarded; the full run starts fresh.
 """
 
 import argparse
@@ -63,6 +63,7 @@ def candidate(output, batch_size):
         trainer.optimizer.zero_grad(set_to_none=True)
         torch.cuda.synchronize()
         result.update(stress_peak_gib=torch.cuda.max_memory_allocated()/2**30,
+                      stress_reserved_gib=torch.cuda.max_memory_reserved()/2**30,
                       stress_population=largest, total_gpu_gib=total_memory/2**30)
         del stress, stress_cpu, item, data, z, loss, trainer
         gc.collect()
@@ -111,9 +112,16 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", required=True)
     parser.add_argument("--batch-size", type=int)
+    parser.add_argument("--batch-sizes", type=int, nargs="+", default=[2, 4, 6, 8, 16])
+    parser.add_argument("--local", action="store_true", help="Use an explicitly authorized local GPU without Slurm")
     args = parser.parse_args()
-    if not os.environ.get("SLURM_JOB_ID") or torch.cuda.device_count() != 1:
-        raise RuntimeError("Requires an existing allocation with exactly one visible GPU")
+    if not args.local and not os.environ.get("SLURM_JOB_ID"):
+        raise RuntimeError("Requires an existing allocation or explicit --local execution")
+    if torch.cuda.device_count() != 1:
+        raise RuntimeError("Select exactly one GPU with CUDA_VISIBLE_DEVICES")
+    if any(size < 1 for size in args.batch_sizes) or (args.batch_size is not None and args.batch_size < 1):
+        parser.error("Batch sizes must be positive")
+    torch.cuda.set_device(0)
     output = Path(args.output).resolve()
     if args.batch_size is not None:
         return candidate(output, args.batch_size)
@@ -136,9 +144,12 @@ def main():
                "partitions": {"pretrain": entries, "eval": []}})
     print(f"ALL-SESSIONS: {len(inventory)} sessions; {sum(row['windows_20s'] for row in inventory)} windows per epoch", flush=True)
     results = []
-    for size in (2, 4, 6, 8, 16):
+    for size in sorted(set(args.batch_sizes)):
         print(f"BENCHMARK batch_size={size}", flush=True)
-        subprocess.run([sys.executable, "-u", __file__, "--output", str(output), "--batch-size", str(size)], check=True)
+        command = [sys.executable, "-u", __file__, "--output", str(output), "--batch-size", str(size)]
+        if args.local:
+            command.append("--local")
+        subprocess.run(command, check=True)
         result = json.loads((output / f"batch_{size}.json").read_text())
         results.append(result)
         if result["status"] == "out_of_memory":

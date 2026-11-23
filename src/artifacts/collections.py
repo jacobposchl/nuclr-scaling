@@ -1,7 +1,8 @@
-"""CPU extraction, window-level storage, and reusable unit means."""
+"""Window-level extraction and reusable unit means on CPU or an explicit GPU."""
 
 import json
 from pathlib import Path
+import time
 
 import h5py
 import numpy as np
@@ -31,19 +32,24 @@ def expand_selection(registry, selection):
 
 
 def extract(store, checkpoint_id, registry, config, label=""):
-    """Extract in float32 on CPU; no GPU discovery or device transfers occur."""
+    """Use float32 on CPU by default, or bf16 inference with device='cuda'."""
     import torch
     from torch_brain.batching import collate
     from src.models.unit_encoders.nuclr import NuCLR
 
-    allowed = {"datasets", "step_seconds", "max_windows_per_session", "output", "fingerprint"}
+    allowed = {"datasets", "step_seconds", "max_windows_per_session", "output", "fingerprint", "device"}
     if set(config) - allowed:
         raise ValueError(f"Unknown extraction options: {set(config) - allowed}")
     mode = config.get("output", "unit_mean")
     if mode not in ("unit_mean", "windows", "both"):
         raise ValueError("output must be unit_mean, windows, or both")
+    device = config.get("device", "cpu")
+    if device not in ("cpu", "cuda"):
+        raise ValueError("device must be cpu or cuda; select a GPU with CUDA_VISIBLE_DEVICES")
+    if device == "cuda" and (not torch.cuda.is_available() or not torch.cuda.is_bf16_supported()):
+        raise RuntimeError("CUDA extraction requires an available GPU with bf16 support")
     checkpoint_path = store.checkpoint_path(checkpoint_id)
-    model = NuCLR.from_pretrained(checkpoint_path).cpu().float().eval()
+    model = NuCLR.from_pretrained(checkpoint_path).to(device).float().eval()
     selection = expand_selection(registry, config["datasets"])
     sources = [registry.fingerprint(dataset, [s["session_id"] for s in selection if s["dataset_id"] == dataset],
                                     config.get("fingerprint", "stat"))
@@ -58,11 +64,13 @@ def extract(store, checkpoint_id, registry, config, label=""):
                          "max_windows_per_session": limit, "order": "chronological"},
               "population": "all_source_units_grouped_by_probe_no_dropout",
               "representation": "encoder", "normalization": "none", "output": mode,
-              "device": "cpu", "dtype": "float32", "implementation": implementation_stamp()}
+              "device": device, "dtype": "bfloat16" if device == "cuda" else "float32",
+              "implementation": implementation_stamp()}
     with store.build("collections", recipe, label, [{"kind": "checkpoints", "id": checkpoint_id}]) as (stage, artifact_id):
         if stage is None:
             return artifact_id
         summary = []
+        started = time.monotonic()
         for session_number, selected in enumerate(selection):
             dataset, session = selected["dataset_id"], selected["session_id"]
             desc = registry.describe(dataset, session)
@@ -89,8 +97,10 @@ def extract(store, checkpoint_id, registry, config, label=""):
                     counts = np.bincount(data.spikes.unit_index, minlength=len(rows))
                     spike_counts += counts
                     tokens = collate([model.tokenize(data)])
-                    with torch.inference_mode():
-                        z = model(**tokens).float().numpy()
+                    tokens = {key: value.to(device) for key, value in tokens.items()}
+                    with torch.inference_mode(), torch.autocast(
+                            device_type=device, dtype=torch.bfloat16, enabled=device == "cuda"):
+                        z = model(**tokens).float().cpu().numpy()
                     if not np.isfinite(z).all():
                         raise ValueError(f"Nonfinite embeddings in {dataset}/{session}")
                     total += z
@@ -104,6 +114,9 @@ def extract(store, checkpoint_id, registry, config, label=""):
                 row["firing_rate_hz"] = float(count / (len(bounds) * model.ctx_duration))
             write_json(shard / "units.json", rows)
             summary.append({**selected, "shard": shard.name, "units": len(rows), "windows": len(bounds)})
+            print(f"EXTRACT session={session_number + 1}/{len(selection)} {dataset}/{session} "
+                  f"units={len(rows)} windows={len(bounds)} elapsed_minutes={(time.monotonic() - started) / 60:.1f}",
+                  flush=True)
         # Do not publish if source files were replaced during extraction.
         after = [registry.fingerprint(s["dataset_id"], [f["session_id"] for f in s["files"]], s["fingerprint_mode"])
                  for s in sources]

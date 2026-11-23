@@ -9,6 +9,7 @@ ckpt/
 embs/
 *.pt
 .pytest_cache/
+/artifacts/
 .validation-deps/
 .uv-cache/
 .validation-output/

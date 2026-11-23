@@ -1,0 +1,111 @@
+{
+  "session_id": "771990200",
+  "source_url": "https://api.brain-map.org/api/v2/well_known_file_download/1026124152",
+  "retrieved_utc": "2026-11-18T02:01:03.464991+00:00",
+  "source_nwb_bytes": 2456324796,
+  "downloaded_metadata_bytes": 13369344,
+  "local_stimulus_sha256": "0670db720a172d1d2d06ce1153263a21a7f53b5526f826deb6ea666aaabf5ab7",
+  "verified_stimulus_tables": [
+    "drifting_gratings",
+    "gabors"
+  ],
+  "epochs": [
+    {
+      "start": 15.30914010029618,
+      "end": 75.37590010029619,
+      "type": "spontaneous",
+      "stimulus_block": -1.0
+    },
+    {
+      "start": 75.37590010029619,
+      "end": 987.3711452999606,
+      "type": "gabors",
+      "stimulus_block": 0.0
+    },
+    {
+      "start": 987.3711452999606,
+      "end": 1276.3625801002966,
+      "type": "spontaneous",
+      "stimulus_block": -1.0
+    },
+    {
+      "start": 1276.3625801002966,
+      "end": 1574.8620126668511,
+      "type": "flashes",
+      "stimulus_block": 1.0
+    },
+    {
+      "start": 1574.8620126668511,
+      "end": 1636.6636601002967,
+      "type": "spontaneous",
+      "stimulus_block": -1.0
+    },
+    {
+      "start": 1636.6636601002967,
+      "end": 2176.614820233406,
+      "type": "drifting_gratings_contrast",
+      "stimulus_block": 2.0
+    },
+    {
+      "start": 2176.614820233406,
+      "end": 2297.215610100296,
+      "type": "spontaneous",
+      "stimulus_block": -1.0
+    },
+    {
+      "start": 2297.215610100296,
+      "end": 3197.968200100296,
+      "type": "natural_movie_one_more_repeats",
+      "stimulus_block": 3.0
+    },
+    {
+      "start": 3197.968200100296,
+      "end": 3498.219090100297,
+      "type": "natural_movie_one_shuffled",
+      "stimulus_block": 4.0
+    },
+    {
+      "start": 3498.219090100297,
+      "end": 4397.971150366516,
+      "type": "drifting_gratings_75_repeats",
+      "stimulus_block": 5.0
+    },
+    {
+      "start": 4397.971150366516,
+      "end": 6200.495300100295,
+      "type": "spontaneous",
+      "stimulus_block": -1.0
+    },
+    {
+      "start": 6200.495300100295,
+      "end": 7100.264120366515,
+      "type": "drifting_gratings_75_repeats",
+      "stimulus_block": 6.0
+    },
+    {
+      "start": 7100.264120366515,
+      "end": 7101.2649701002965,
+      "type": "spontaneous",
+      "stimulus_block": -1.0
+    },
+    {
+      "start": 7101.2649701002965,
+      "end": 7401.515940100297,
+      "type": "natural_movie_one_shuffled",
+      "stimulus_block": 7.0
+    },
+    {
+      "start": 7401.515940100297,
+      "end": 8302.268730100297,
+      "type": "natural_movie_one_more_repeats",
+      "stimulus_block": 8.0
+    },
+    {
+      "start": 8302.268730100297,
+      "end": 9141.970420366517,
+      "type": "dot_motion",
+      "stimulus_block": 9.0
+    }
+  ],
+  "source_timing_anomalies": []
+}

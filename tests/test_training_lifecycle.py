@@ -13,10 +13,29 @@ from src.artifacts.store import write_json
 from src.datasets.allen_multi import AllenMultiDataset
 from src.trainers.base import Trainer
 from src.utils.checkpoint import save_ckpt
+from src.utils.logger import Logger
 from test_artifacts import fixture
 
 
 class TrainingLifecycleTests(unittest.TestCase):
+    def test_logging_preserves_shell_expressions_in_git_diff(self):
+        cfg = OmegaConf.create({"seed": 42})
+        diff = '+python_bin=${NUCLR_PYTHON:-$project_root/.venv/bin/python}\n'
+        with patch("src.utils.logger.git.Repo") as repository, patch("src.utils.logger.wandb.config") as logged:
+            repository.return_value.head.commit.hexsha = "example-commit"
+            repository.return_value.git.diff.return_value = diff
+            Logger.save_config(SimpleNamespace(dummy=False), cfg)
+        logged.update.assert_called_once_with(
+            {"seed": 42, "git": {"commit_id": "example-commit", "diff": diff}},
+            allow_val_change=True,
+        )
+
+    def test_logging_without_git_metadata(self):
+        cfg = OmegaConf.create({"seed": 42})
+        with patch("src.utils.logger.git.Repo", side_effect=RuntimeError("no repository")), patch("src.utils.logger.wandb.config") as logged:
+            Logger.save_config(SimpleNamespace(dummy=False), cfg)
+        logged.update.assert_called_once_with({"seed": 42}, allow_val_change=True)
+
     def test_checkpoint_cadence_uses_completed_epochs(self):
         fake = SimpleNamespace(rank=0, cfg=OmegaConf.create({"ckpt": {"every_n_epochs": 10}}),
                                ckpt_dir=Path("unused"), train_step=0,

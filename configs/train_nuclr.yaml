@@ -38,7 +38,9 @@ seed: 42
 
 # training
 num_epochs: 50
-batch_size: 80
+batch_size: 80  # Total window pairs per optimizer update across all GPUs.
+micro_batch_size: null  # Set a per-GPU batch size to enable accumulation; no automatic rounding.
+samples_per_recording: null  # null uses every available window; an integer sets an exact epoch quota.
 lr:
   peak: 5e-4
   rise: 1
@@ -64,7 +66,7 @@ wandb:
   dir: wandb
 
 ckpt:
-  enable: false
+  enable: true
   dir: ${oc.env:CKPT_DIR, ckpt/}
   every_n_epochs: 1
   save_last: true

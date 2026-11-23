@@ -65,6 +65,7 @@ class Logger:
 
     @skip_if_dummy
     def save_config(self, cfg: DictConfig):
+        config = OmegaConf.to_container(cfg, resolve=True)
         # Get git info
         try:
             repo = git.Repo(search_parent_directories=True)
@@ -72,16 +73,15 @@ class Logger:
             diff = repo.git.diff()
 
             # Add git info to config
-            cfg = OmegaConf.to_container(cfg, resolve=True)
-            cfg["git"] = {"commit_id": commit_id}
+            config["git"] = {"commit_id": commit_id}
             if diff:
-                cfg["git"]["diff"] = diff
-            cfg = OmegaConf.create(cfg)
+                config["git"]["diff"] = diff
         except Exception:
             # If git info can't be retrieved, continue without it
             pass
 
-        wandb.config.update(OmegaConf.to_container(cfg), allow_val_change=True)
+        # Git diffs can contain literal shell ${...}; do not parse them as config.
+        wandb.config.update(config, allow_val_change=True)
 
     def info(self, msg, all_ranks=False):
         if all_ranks or not self.dummy:
