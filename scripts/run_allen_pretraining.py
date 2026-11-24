@@ -16,6 +16,7 @@ from omegaconf import OmegaConf
 
 from src.artifacts.store import implementation_stamp, write_json
 from src.utils import instantiate
+from src.utils.run_resources import check_free_storage, require_idle_gpu
 
 
 def main():
@@ -25,15 +26,22 @@ def main():
     parser.add_argument("--resume", help="Path to last.pt; uses the run's saved configuration")
     parser.add_argument("--override", action="append", default=[], help="Hydra config override for a new run; repeat as needed")
     parser.add_argument("--local", action="store_true", help="Use an explicitly authorized local GPU without Slurm")
+    parser.add_argument("--require-idle-gpu", action="store_true", help="Refuse to start if the selected GPU is busy")
+    parser.add_argument("--min-free-gib", type=float, default=0.,
+                        help="Require this much free storage before launch and during training")
     args = parser.parse_args()
     if not args.local and not os.environ.get("SLURM_JOB_ID"):
         raise RuntimeError("Requires an existing allocation or explicit --local execution")
+    output = Path(args.output).resolve()
+    free_gib = check_free_storage(output, args.min_free_gib)
+    gpu_check = require_idle_gpu(os.environ.get("CUDA_VISIBLE_DEVICES", "0")) if args.require_idle_gpu else None
+    if args.min_free_gib or args.require_idle_gpu:
+        print(f"RESOURCE_CHECK free_gib={free_gib:.1f} minimum_gib={args.min_free_gib:g} gpu={gpu_check}", flush=True)
     if torch.cuda.device_count() != 1:
         raise RuntimeError("Select exactly one GPU with CUDA_VISIBLE_DEVICES")
     if args.resume and args.override:
         parser.error("Resume uses the saved configuration; overrides are only allowed for a new run")
     torch.cuda.set_device(0)
-    output = Path(args.output).resolve()
     output.mkdir(parents=True, exist_ok=bool(args.resume))
     status_path = output / "status.json"
     if args.resume:
@@ -61,7 +69,10 @@ def main():
               "target_epochs": cfg.num_epochs, "batch_size": cfg.batch_size,
               "micro_batch_size": cfg.get("micro_batch_size"),
               "samples_per_recording": cfg.get("samples_per_recording"),
-              "implementation": implementation_stamp(), "resume_from": args.resume}
+              "resource_checks": {"minimum_free_gib": args.min_free_gib, "initial_free_gib": free_gib,
+                                  "idle_gpu_check": gpu_check},
+              "implementation": implementation_stamp(),
+              "resume_from": cfg.ckpt.load_from if cfg.ckpt.resume else None}
     def publish(**updates):
         status.update(updates, updated_at=time.strftime("%Y-%m-%dT%H:%M:%S%z"))
         temporary = output / ".status.tmp"
@@ -86,11 +97,13 @@ def main():
                 micro_batches_per_epoch=micro_batches, accumulation_steps=trainer.accumulation_steps,
                 samples_per_epoch=len(trainer.train_loader.sampler),
                 sessions=dict(registry_sessions), completed_epochs=trainer.epoch,
-                last_completed_checkpoint=args.resume, checkpoint_dir=str(trainer.ckpt_dir))
+                last_completed_checkpoint=status["resume_from"], checkpoint_dir=str(trainer.ckpt_dir))
         original_epoch = trainer.train_epoch
         original_last = trainer._save_last_checkpoint
         epoch_losses = []
         pending_losses = []
+        pending_metrics = Counter()
+        epoch_metrics = Counter()
         micro_batches_seen = 0
         epoch_samples = Counter()
         epoch_start = time.monotonic()
@@ -98,15 +111,21 @@ def main():
         start_epoch = trainer.epoch
         def train_epoch(self):
             nonlocal epoch_start, micro_batches_seen
+            check_free_storage(output, args.min_free_gib)
             epoch_losses.clear()
             pending_losses.clear()
+            pending_metrics.clear()
+            epoch_metrics.clear()
             micro_batches_seen = 0
             epoch_samples.clear()
             epoch_start = time.monotonic()
             publish(current_epoch=self.epoch+1, epoch_step=0)
             original_epoch()
+            # The base trainer saves epoch_N.pt immediately after this method.
+            check_free_storage(output, args.min_free_gib)
         trainer.train_epoch = MethodType(train_epoch, trainer)
         def checkpoint_complete(self):
+            free_gib = check_free_storage(output, args.min_free_gib)
             original_last()
             elapsed = time.monotonic() - epoch_start
             completed = self.epoch+1
@@ -114,6 +133,8 @@ def main():
                       "micro_batches": micro_batches_seen,
                       "usable_window_pairs_by_dataset": dict(epoch_samples),
                       "mean_loss": float(np.mean(epoch_losses)), "seconds": elapsed,
+                      "mean_loss_components": {key: value / len(epoch_losses) for key, value in epoch_metrics.items()},
+                      "free_storage_gib": free_gib,
                       "peak_allocated_gpu_gib": torch.cuda.max_memory_allocated()/2**30,
                       "peak_reserved_gpu_gib": torch.cuda.max_memory_reserved()/2**30,
                       "train_step": self.train_step, "checkpoint": str(self.last_ckpt_path)}
@@ -136,29 +157,41 @@ def main():
             weight = result[1]["train/loss_weight"] if cfg.get("micro_batch_size") is not None else 1.0
             if weight > 0:
                 pending_losses.append((value, weight))
+                for key, metric in result[1].items():
+                    if key.startswith("train/") and key not in {"train/loss", "train/loss_weight"}:
+                        pending_metrics[key.removeprefix("train/")] += float(metric) * weight
             pair_lengths = kwargs["seqlen"].detach().cpu().numpy().reshape(-1, 2).sum(1)
             offsets = np.r_[0, pair_lengths.cumsum()[:-1]]
             epoch_samples.update(str(kwargs["unit_ids"][int(offset)]).split("/")[0]
                                  for offset in offsets)
-        def optimizer_record(optimizer, args, kwargs):
+        def optimizer_record(optimizer, optimizer_args, optimizer_kwargs):
             weight = sum(weight for _, weight in pending_losses)
             value = sum(loss * weight for loss, weight in pending_losses) / weight
             pending_losses.clear()
+            components = {key: value / weight for key, value in pending_metrics.items()}
+            pending_metrics.clear()
+            epoch_metrics.update(components)
             epoch_losses.append(value)
             record = {"epoch": trainer.epoch+1, "epoch_step": len(epoch_losses),
                       "micro_batches": micro_batches_seen,
                       "train_step": trainer.train_step+1, "loss": value,
+                      "loss_components": components,
                       "lr": trainer.optimizer.param_groups[0]["lr"]}
             with (output / "steps.jsonl").open("a") as stream:
                 stream.write(json.dumps(record)+"\n")
             if len(epoch_losses) == 1 or len(epoch_losses) % 100 == 0:
+                free_gib = check_free_storage(output, args.min_free_gib)
                 elapsed = time.monotonic()-epoch_start
                 eta = (micro_batches-micro_batches_seen)*elapsed/micro_batches_seen
                 publish(epoch_step=len(epoch_losses), micro_batches=micro_batches_seen,
                         loss=value, epoch_remaining_minutes=eta/60,
+                        loss_components=components, free_storage_gib=free_gib,
                         usable_window_pairs_by_dataset=dict(epoch_samples))
+                rate_note = (f" rate_mae_hz={components['rate_mae_hz']:.3f} "
+                             f"rate_corr2={components['rate_correlation_penalty']:.4f}"
+                             if "rate_mae_hz" in components else "")
                 print(f"TRAIN epoch={trainer.epoch+1}/{cfg.num_epochs} step={len(epoch_losses)}/{steps} "
-                      f"loss={value:.5f} epoch_eta_minutes={eta/60:.1f}", flush=True)
+                      f"loss={value:.5f}{rate_note} epoch_eta_minutes={eta/60:.1f}", flush=True)
         hook = trainer.ssl_loss.register_forward_hook(loss_record, with_kwargs=True)
         optimizer_hook = trainer.optimizer.register_step_post_hook(optimizer_record)
         trainer.train()

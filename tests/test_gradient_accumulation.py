@@ -201,6 +201,7 @@ class AccumulationTests(unittest.TestCase):
             cfg.trainer = {}
             cfg.wandb = {"mode": "disabled", "dir": str(root / "wandb")}
             cfg.ckpt.enable = cfg.ckpt.save_last = True
+            cfg.ckpt.load_from = None
             trainer.train_dataset = SimpleNamespace(recording_ids=["1/session"])
             trainer.train_loader.sampler = MagicMock()
             trainer.train_loader.sampler.__len__.return_value = 7

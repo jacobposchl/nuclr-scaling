@@ -267,6 +267,95 @@ and checkpoints at every epoch plus `last.pt`. This preset disables automatic
 embedding extraction and external W&B logging. Creating the config does not
 launch training.
 
+### Rate-separated experiment
+
+`train_nuclr_allen_ibl_rate_separated` starts a fresh 10-epoch run with the same
+three-dataset full non-optotagging sampling, effective batch 81, and micro-batch 3.
+It saves every epoch plus `last.pt`. The 256-dimensional output contains a
+nonnegative raw-Hz prediction in coordinate 0, supervised from the early temporal
+layers, and 255 content coordinates from the later layers. Contrastive matching
+uses only the content coordinates.
+
+The total loss is contrastive loss plus `0.1 * MSE(rate / 10 Hz)` plus `0.1`
+times the mean squared correlation between each content coordinate and the true
+rate. Targets are each neuron's spike count divided by its 20-second view
+length. Correlations are computed across neurons and views within each
+micro-batch, not across the entire accumulated batch. This discourages linear
+rate leakage but does not guarantee rate independence; pooled content should
+later be evaluated with fresh held-out-animal probes. Content-only analyses
+must select coordinates 1 through 255. This experimental mode supports one GPU.
+
+For an authorized local run, the launcher can enforce resource checks:
+
+```bash
+CUDA_VISIBLE_DEVICES=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMBA_NUM_THREADS=1 PYTHONPATH=. \
+  .venv/bin/python -u scripts/run_allen_pretraining.py \
+  --config train_nuclr_allen_ibl_rate_separated \
+  --output runs/unique-rate-separated-run --local --require-idle-gpu --min-free-gib 25
+```
+
+The GPU check rejects existing compute processes or substantial graphics activity.
+Storage is checked before launch, every 100 optimizer updates, and around epoch
+checkpoint saves. Failed checks stop the run without deleting any files.
+
+To pool and plot a saved epoch over the same full non-optotagging domains:
+
+```bash
+CUDA_VISIBLE_DEVICES=0 .venv/bin/python scripts/plot_pretraining_umaps.py \
+  --run runs/your-run --epoch 5 \
+  --coding-labels /home/jposchl/data/processed/allen_visual_coding_neuropixels_2019/allen_vc_2019.csv
+```
+
+For rate-separated models, extraction retains all 256 coordinates and derives a
+255-dimensional content collection for the joint and separate dataset UMAPs.
+The rate coordinate is excluded from every UMAP. Epoch-specific progress and
+artifact links are recorded under `embedding_overviews/epoch_N/status.json`.
+Omitting `--epoch` selects the final checkpoint. Extraction requires an idle GPU
+and at least 25 GiB free; UMAP fits use one CPU thread.
+
+### Continuing runs and comparing representations
+
+`train_nuclr_vc_full_baseline` trains the original encoder on the 58 VC sessions.
+`train_nuclr_allen_ibl_rate_separated_continue` resumes the joint variant from
+epoch 10 through epoch 20, preserving Adam state and starting a new learning-rate
+cycle at `lr.cycle_start_epoch: 10`. The cycle uses one warmup epoch and nine cosine
+epochs. Resuming a checkpoint within that cycle restores its scheduler state.
+Continuation configs reference local checkpoint and frozen registry paths; update
+those paths when moving to another machine. Checkpoints and run outputs are not
+tracked in Git.
+
+To wait for a local run to finish before launching the next authorized run:
+
+```bash
+.venv/bin/python scripts/queue_pretraining.py \
+  --after-run runs/preceding-run \
+  --config train_nuclr_allen_ibl_rate_separated_continue \
+  --output runs/new-continuation --gpu 0 --min-free-gib 25
+```
+
+The watcher waits for successful completion, an idle GPU, and sufficient storage.
+Its state is saved beside the output as `new-continuation.queue.json`.
+
+Analysis runners use saved embeddings and one CPU thread:
+
+- `scripts/compare_rate_separated.py`: matched firing-rate and dataset comparisons,
+  excluding zero-rate neurons.
+- `scripts/evaluate_brain_regions.py`: within-dataset Beryl region decoding with
+  five held-out-animal folds and paired animal bootstrap comparisons.
+- `scripts/analyze_biological_neighbors.py --variant-epoch 5`: cross-dataset region
+  agreement among nearest neighbors, controlling neuron and population firing
+  rates. Epoch 10 is the default. The cell-type comparison is exploratory because
+  VC labels are LOLCAT predictions and IBL has no corresponding labels.
+- `scripts/compare_vc_pretraining.py`: waits for the run supplied through
+  `--wait-for-run`, extracts the completed VC-only epoch-10 checkpoint, and compares
+  its region decoding with saved joint-model predictions. It checks identical
+  pooling windows, neuron identities, labels, and animal folds before comparison.
+
+Each runner exposes its required artifact IDs and paths through `--help`. The
+Beryl mapping inputs and pinned source are in `results/cache/ibl_atlas_regions`.
+Animal holdouts apply to probe fitting; these animals participated in encoder
+pretraining. Equal epoch counts do not equalize total updates across dataset mixes.
+
 ### Gradient accumulation
 
 Accumulation is opt-in through `micro_batch_size`. Missing or `null` retains the

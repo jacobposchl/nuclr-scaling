@@ -31,6 +31,7 @@ class NuCLR(nn.Module):
         rot_ratio: float = 0.5,
         rotate_value: bool = True,
         attn_biases: bool = False,
+        rate_separation: bool = False,
     ):
         super().__init__()
 
@@ -40,6 +41,9 @@ class NuCLR(nn.Module):
         self.latent_step = latent_step
         self.bin_size = bin_size
         self.emb_dim = self.dim = dim
+        if not isinstance(rate_separation, bool) or (rate_separation and dim < 3):
+            raise ValueError("rate_separation must be boolean and requires dim >= 3")
+        self.rate_separation = rate_separation
 
         if atn_dropout != 0.0:
             print(f"{atn_dropout=} but this impl only supports atn_dropout==0")
@@ -102,6 +106,9 @@ class NuCLR(nn.Module):
         )  # ty:ignore[invalid-assignment]
 
         self.dp = nn.Dropout(lin_dropout)
+        if rate_separation:
+            self.rate_head = nn.Linear(dim, 1)
+            self.content_head = nn.Linear(dim, dim - 1)
 
     def forward(self, bins: Tensor, spax_seqlen: Tensor) -> Tensor:
         r"""
@@ -129,6 +136,9 @@ class NuCLR(nn.Module):
             x = x + self.dp(t_attn(x, rotary=x_rot))
             x = x + self.dp(t_ffn(x))
 
+        if self.rate_separation:
+            rate_hz = torch.nn.functional.softplus(self.rate_head(x.mean(1)))
+
         # Spatio-temporal attention layers
         for s_attn, s_ffn, t_attn, t_ffn in self.st_blocks:
             # Spatial
@@ -142,6 +152,8 @@ class NuCLR(nn.Module):
             x = x + self.dp(t_ffn(x))
 
         y = x.mean(1)
+        if self.rate_separation:
+            return torch.cat((rate_hz, self.content_head(y)), dim=-1)
         return y
 
     def tokenize(self, data) -> dict | None:

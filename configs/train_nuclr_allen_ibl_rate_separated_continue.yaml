@@ -1,0 +1,22 @@
+defaults:
+  - train_nuclr_allen_ibl_rate_separated
+  - _self_
+
+# Preserve the exact original cohort; continue the variant from completed epoch 10.
+dataset:
+  registry: /home/jposchl/nuclr-scaling/runs/allen-ibl-rate-separated-10epochs-batch81-20261123-005935/registry.json
+  split_manifest: /home/jposchl/nuclr-scaling/runs/allen-ibl-rate-separated-10epochs-batch81-20261123-005935/split_manifest.json
+num_epochs: 20
+lr:
+  # New 10-epoch cycle: one warmup epoch, then cosine decay. Adam state is retained.
+  cycle_start_epoch: 10
+  peak: 5e-4
+  rise: 1
+  min_factor: 1e-2
+ckpt:
+  load_from: /home/jposchl/nuclr-scaling/runs/allen-ibl-rate-separated-10epochs-batch81-20261123-005935/checkpoints/y0vokyu1/epoch_10.pt
+  resume: true
+  every_n_epochs: 1
+  save_last: true
+wandb:
+  name: allen-ibl-rate-separated-epochs11-20-batch81

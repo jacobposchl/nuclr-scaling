@@ -112,9 +112,9 @@ class ThreeDatasetOverviewTests(unittest.TestCase):
         datasets = ["allen_visual_behavior", "allen_visual_coding", "ibl_brain_wide_bench_2026"]
         rows = [dict(dataset_id=dataset, unit_uid=f"{dataset}/{i}", session_uid=dataset,
                      subject_uid=dataset, probe_uid=dataset, brain_region="VISp",
-                     cell_type="Unknown", firing_rate_hz=float(i + 1))
-                for dataset in datasets for i in range(3)]
-        embeddings = np.arange(18, dtype=np.float32).reshape(9, 2)
+                     cell_type="Unknown", firing_rate_hz=float(i))
+                for dataset in datasets for i in range(4)]
+        embeddings = np.arange(24, dtype=np.float32).reshape(12, 2)
         cfg = {"fit_selection": {}, "show_selection": {}, "standardize": False,
                "max_rows": 200000, "seed": 42, "umap": {"n_neighbors": 2}}
         with tempfile.TemporaryDirectory() as temporary:
@@ -137,12 +137,26 @@ class ThreeDatasetOverviewTests(unittest.TestCase):
                 analysis = analyze_embedding_overview(store, source)
             load.assert_called_once_with(store, [collection], max_rows=200000)
             self.assertEqual(umap.call_count, 3)
-            self.assertEqual([len(call.args[2]) for call in plot.call_args_list], [9, 3, 3, 3])
+            self.assertEqual([len(call.args[2]) for call in plot.call_args_list], [12, 4, 4, 4])
             index = json.loads((store.path("analyses", analysis) / "index.json").read_text())
-            self.assertEqual(index["datasets"], dict.fromkeys(datasets, 3))
+            self.assertEqual(index["datasets"], dict.fromkeys(datasets, 4))
             self.assertEqual(index["plots"][-1], "ibl_brain_wide_bench_2026_umap_panels.png")
             # Earlier two-dataset figures retain the same dataset ordering.
-            self.assertEqual(list(overview_datasets(rows[:6])), datasets[:2])
+            self.assertEqual(list(overview_datasets(rows[:8])), datasets[:2])
+
+            umap.reset_mock()
+            with patch("src.artifacts.embedding_overview.load_unit_means", return_value=(embeddings, rows)), \
+                    patch("src.artifacts.embedding_overview.plot_overview") as filtered_plot, \
+                    patch.dict("sys.modules", {"umap": SimpleNamespace(UMAP=umap)}):
+                filtered_id = analyze_embedding_overview(store, source, positive_rate_only=True)
+            self.assertEqual(umap.call_count, 4)
+            self.assertEqual([len(call.args[2]) for call in filtered_plot.call_args_list], [9, 3, 3, 3])
+            filtered_rows = filtered_plot.call_args_list[0].args[2]
+            self.assertTrue(all(row["firing_rate_hz"] > 0 for row in filtered_rows))
+            self.assertTrue(all(row["population_size"] == 4 and row["probe_population_size"] == 4
+                                and row["population_mean_firing_rate_hz"] == 1.5 for row in filtered_rows))
+            filtered_index = json.loads((store.path("analyses", filtered_id) / "index.json").read_text())
+            self.assertEqual(filtered_index["removed_zero_rate_by_dataset"], dict.fromkeys(datasets, 1))
 
     def test_visual_cortex_refit_excludes_visceral_and_preserves_population_metadata(self):
         regions = ["VISp", "VISC5", "LGd", "VISp6a", "VIS", "SCig", "VISrl2/3"]

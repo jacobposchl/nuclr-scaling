@@ -1,0 +1,21 @@
+defaults:
+  - train_nuclr_allen_ibl_full
+  - _self_
+
+# Original NuCLR baseline, with the joint run's VC cohort and sampling settings.
+dataset:
+  split_manifest: configs/splits/allen_vc_full_non_opto_all.json
+
+num_epochs: 10
+batch_size: 81
+micro_batch_size: 3
+model:
+  rate_separation: false
+
+ckpt:
+  load_from: null
+  resume: false
+  every_n_epochs: 1
+
+wandb:
+  name: vc-full-non-opto-baseline-10epochs-batch81

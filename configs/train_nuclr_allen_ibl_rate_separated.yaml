@@ -1,0 +1,31 @@
+defaults:
+  - train_nuclr_allen_ibl_full
+  - _self_
+
+# Fresh experiment on the same full non-opto Allen + IBL cohort.
+num_epochs: 10
+batch_size: 81
+micro_batch_size: 3
+model:
+  rate_separation: true
+
+loss:
+  _target_: src.losses.rate_separated.RateSeparatedNuCLRLoss
+  # Coordinate 0 predicts each retained neuron's rate in its 20-second view.
+  # Coordinates 1:256 alone enter the contrastive projector.
+  rate_supervision_weight: 0.1
+  rate_scale_hz: 10.0  # Raw-Hz squared error divided by 10^2, not a log transform.
+  rate_correlation_weight: 0.1
+  # Correlation is computed across neurons/views within each micro-batch.
+  # Accumulation averages these losses; it does not compute a batch-81 correlation.
+
+ckpt:
+  enable: true
+  every_n_epochs: 1
+  save_last: true
+  load_from: null
+  resume: false
+save_embs:
+  enable: false
+wandb:
+  name: allen-ibl-rate-separated-10epochs-batch81

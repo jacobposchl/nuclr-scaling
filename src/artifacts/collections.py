@@ -66,6 +66,9 @@ def extract(store, checkpoint_id, registry, config, label=""):
               "representation": "encoder", "normalization": "none", "output": mode,
               "device": device, "dtype": "bfloat16" if device == "cuda" else "float32",
               "implementation": implementation_stamp()}
+    if model.rate_separation:
+        recipe["embedding_layout"] = {"rate_coordinate": 0, "rate_target": "window_firing_rate_hz",
+                                      "content_coordinates": list(range(1, model.emb_dim))}
     with store.build("collections", recipe, label, [{"kind": "checkpoints", "id": checkpoint_id}]) as (stage, artifact_id):
         if stage is None:
             return artifact_id
@@ -221,3 +224,39 @@ def derive_means(store, collection_id, window_indices=None, label=""):
             summary.append(dict(item, windows=len(selected)))
         write_json(stage / "index.json", dict(index, sessions=summary))
     return artifact_id
+
+
+def derive_content_means(store, collection_id, label=""):
+    """Preserve pooling and metadata while selecting the declared content coordinates."""
+    manifest = store.read("collections", collection_id)
+    parent = manifest["recipe"]
+    dimensions = parent.get("embedding_layout", {}).get("content_coordinates")
+    folder = store.path("collections", collection_id)
+    index = json.loads((folder / "index.json").read_text())
+    if (not dimensions or any(type(i) is not int or i < 0 or i >= index["dimension"] for i in dimensions)
+            or dimensions != sorted(set(dimensions))
+            or parent["embedding_layout"].get("rate_coordinate") in dimensions):
+        raise ValueError("Collection must declare valid content coordinates excluding the rate coordinate")
+    recipe = {"operation": "content_means_v1", "parent_collection": collection_id,
+              "source_coordinates": dimensions, "sources": parent["sources"],
+              "representation": "content", "implementation": implementation_stamp()}
+    with store.build("collections", recipe, label, [{"kind": "collections", "id": collection_id}]) as (stage, aid):
+        if stage is None:
+            return aid
+        for item in index["sessions"]:
+            source = folder / item["shard"]
+            destination = stage / item["shard"]
+            destination.mkdir()
+            for name in ("units.json", "windows.json"):
+                (destination / name).write_bytes((source / name).read_bytes())
+            with h5py.File(source / "embeddings.h5", "r") as original:
+                if "unit_mean" not in original:
+                    raise ValueError("Content selection requires pooled embeddings")
+                values = original["unit_mean"][:, dimensions]
+                if not np.isfinite(values).all():
+                    raise ValueError("Nonfinite content embeddings")
+                with h5py.File(destination / "embeddings.h5", "w") as output:
+                    output.create_dataset("unit_mean", data=values)
+                    output.create_dataset("observation_count", data=original["observation_count"][:])
+        write_json(stage / "index.json", dict(index, dimension=len(dimensions)))
+    return aid

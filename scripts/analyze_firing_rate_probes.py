@@ -9,7 +9,9 @@ import sys
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--store", type=Path, default=Path("artifacts"))
-    parser.add_argument("--source-analysis", required=True,
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--collection", help="Pooled collection for --sequential-directions")
+    source.add_argument("--source-analysis",
                         help="PCA analysis for probes; probe analysis for --remove-direction; removed UMAP analysis for --removed-pca")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--compare-datasets", action="store_true",
@@ -25,6 +27,8 @@ def main():
     mode.add_argument("--removed-pca", action="store_true",
                       help="Fit six PCs after the saved direction removal, with PC1/2, PC3/4, and PC5/6 panels")
     args = parser.parse_args()
+    if args.collection and not args.sequential_directions:
+        parser.error("--collection requires --sequential-directions")
     for name in ("OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "OMP_NUM_THREADS", "NUMBA_NUM_THREADS"):
         os.environ[name] = "1"
     os.environ["MPLBACKEND"] = "Agg"
@@ -44,7 +48,8 @@ def main():
                analyze_removed_probes if args.reprobe_removed else
                analyze_direction_removed_pca if args.removed_pca else
                analyze_direction_removed_umaps if args.remove_direction else analyze_firing_rate_probes)
-    analysis_id = analyze(store, args.source_analysis)
+    analysis_id = (analyze_sequential_directions(store, collection_id=args.collection) if args.collection
+                   else analyze(store, args.source_analysis))
     print(f"Saved firing-rate direction analysis: {store.path('analyses', analysis_id)}", flush=True)
 
 

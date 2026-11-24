@@ -1,4 +1,4 @@
-"""Pool the final checkpoint over its full training domains and plot neuron UMAPs."""
+"""Pool a selected checkpoint over its full training domains and plot neuron UMAPs."""
 
 import argparse
 import json
@@ -11,6 +11,7 @@ import time
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run", type=Path, required=True)
+    parser.add_argument("--epoch", type=int, help="Completed epoch to extract; defaults to the final epoch")
     parser.add_argument("--store", type=Path, default=Path("artifacts"))
     parser.add_argument("--coding-labels", type=Path, required=True)
     args = parser.parse_args()
@@ -20,7 +21,8 @@ def main():
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     import torch
     from omegaconf import OmegaConf
-    from src.artifacts.collections import extract
+    from src.artifacts.collections import derive_content_means, extract
+    from src.utils.run_resources import check_free_storage, require_idle_gpu
     from src.artifacts.embedding_overview import analyze_embedding_overview
     from src.artifacts.store import ArtifactStore, write_json
     from src.artifacts.visualization import visualize
@@ -33,7 +35,9 @@ def main():
     if training["state"] != "complete":
         raise ValueError("The requested run must have finished training")
     labels = args.coding_labels.resolve(strict=True)
-    epoch = training["completed_epochs"]
+    epoch = training["completed_epochs"] if args.epoch is None else args.epoch
+    if not 1 <= epoch <= training["completed_epochs"]:
+        raise ValueError("Requested epoch must be completed and positive")
     checkpoint_path = Path(training["checkpoint_dir"]) / f"epoch_{epoch}.pt"
     cfg = OmegaConf.to_container(OmegaConf.load(run / "resolved_config.yaml"), resolve=True)
     manifest = json.loads((run / "split_manifest.json").read_text())
@@ -42,7 +46,11 @@ def main():
               "device": "cuda", "fingerprint": "stat", "output": "unit_mean",
               "step_seconds": cfg["views"]["duration"], "max_windows_per_session": None}
     output = run / "embedding_overviews"
-    output.mkdir(exist_ok=True)
+    if args.epoch is not None:
+        output = output / f"epoch_{epoch}"
+    check_free_storage(args.store, 25.)
+    require_idle_gpu(os.environ.get("CUDA_VISIBLE_DEVICES", "0"))
+    output.mkdir(parents=True, exist_ok=True)
     write_json(output / "collection_config.json", config)
     store = ArtifactStore(args.store)
     started = time.monotonic()
@@ -62,6 +70,12 @@ def main():
         update("extracting", checkpoint_id=checkpoint)
         collection = extract(store, checkpoint, registry, config,
                              f"{training['run_id']} epoch {epoch}: full non-optotagging domains")
+        update("pooled", full_collection_id=collection)
+        if cfg["model"].get("rate_separation", False):
+            collection = derive_content_means(store, collection,
+                f"{training['run_id']} epoch {epoch}: content coordinates 1–255")
+            update("content_selected", representation="content", embedding_dimensions=255)
+        check_free_storage(args.store, 25.)
         index = json.loads((store.path("collections", collection) / "index.json").read_text())
         total_neurons = sum(item["units"] for item in index["sessions"])
         visualization_config = {"methods": ["umap"], "fit_selection": {}, "show_selection": {},

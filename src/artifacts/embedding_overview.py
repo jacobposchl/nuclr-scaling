@@ -164,7 +164,7 @@ def plot_overview(path, coordinates, rows, palettes, all_rows, title, include_da
     plt.close(fig)
 
 
-def analyze_embedding_overview(store, source_analysis, labels_path=None):
+def analyze_embedding_overview(store, source_analysis, labels_path=None, positive_rate_only=False):
     source = store.read("analyses", source_analysis)
     cfg = source["recipe"]["config"]
     collection_ids = source["recipe"]["collections"]
@@ -176,6 +176,8 @@ def analyze_embedding_overview(store, source_analysis, labels_path=None):
               "dataset_coordinates": "separate_umap_fits", "umap": cfg["umap"], "seed": cfg["seed"],
               "metadata": "population=all_retained_recording_units;probe=unique_recording_probe",
               "implementation": implementation_stamp()}
+    if positive_rate_only:
+        recipe.update(selection="firing_rate_hz > 0", joint_coordinates="refit_on_positive_rate_neurons")
     annotation_source = None
     if labels_path is not None:
         labels_path = Path(labels_path).expanduser().resolve(strict=True)
@@ -206,12 +208,29 @@ def analyze_embedding_overview(store, source_analysis, labels_path=None):
                                       [float(by_uid[row["unit_uid"]]["firing_rate_hz"]) for row in rows])
         if not np.isfinite(joint).all():
             raise ValueError("Nonfinite joint coordinates")
+        all_rows = rows
+        removed_by_dataset = {}
+        if positive_rate_only:
+            from umap import UMAP
+            keep = np.array([row["firing_rate_hz"] > 0 for row in rows])
+            removed_by_dataset = dict(Counter(row["dataset_id"] for row, yes in zip(rows, keep) if not yes))
+            rows = [row for row, yes in zip(rows, keep) if yes]
+            embeddings = embeddings[keep]
+            datasets = overview_datasets(rows)
+            if min(Counter(row["dataset_id"] for row in rows).values()) <= cfg["umap"]["n_neighbors"]:
+                raise ValueError("Not enough positive-rate neurons per dataset for UMAP")
+            print(f"Refitting positive-rate joint UMAP: {len(rows):,} neurons; removed {removed_by_dataset}", flush=True)
+            joint = UMAP(n_components=2, random_state=cfg["seed"], transform_seed=cfg["seed"],
+                         n_jobs=1, init="random", **cfg["umap"]).fit_transform(embeddings)
+            if not np.isfinite(joint).all():
+                raise ValueError("Nonfinite positive-rate UMAP coordinates")
         within = np.empty_like(joint)
-        palettes = categorical_palettes(rows)
+        palettes = categorical_palettes(all_rows)
         plots = ["joint_umap_panels.png"] + [f"{dataset.removeprefix('allen_')}_umap_panels.png"
                                           for dataset in datasets]
-        plot_overview(stage / plots[0], joint, rows, palettes, rows, "Combined datasets", True)
-        print(f"Rendered joint UMAP: {len(rows):,} neurons, original coordinates", flush=True)
+        plot_overview(stage / plots[0], joint, rows, palettes, rows,
+                      "Combined datasets · FR > 0 Hz" if positive_rate_only else "Combined datasets", True)
+        print(f"Rendered joint UMAP: {len(rows):,} neurons", flush=True)
         from umap import UMAP
 
         for plot_name, (dataset, label) in zip(plots[1:], datasets.items()):
@@ -246,6 +265,7 @@ def analyze_embedding_overview(store, source_analysis, labels_path=None):
                              for field, palette in palettes.items() for category, color in palette.items())
         write_json(stage / "index.json", {"plots": plots, "coordinates": "coordinates.csv",
                    "category_colors": "category_colors.csv", "neurons": len(rows),
+                   "removed_zero_rate_by_dataset": removed_by_dataset,
                    "datasets": dict(Counter(row["dataset_id"] for row in rows)),
                    "cell_types": dict(Counter(row["cell_type"] for row in rows)),
                    "coding_annotations": annotation_source,

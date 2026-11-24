@@ -51,6 +51,11 @@ class NuCLRPreTrainer(Trainer):
 
         self.setup_model(ckpt)
         self.setup_ssl_loss(ckpt)
+        self.rate_separation = getattr(self.model, "rate_separation", False)
+        if self.rate_separation != getattr(self.ssl_loss, "requires_firing_rate", False):
+            raise ValueError("Rate-separated encoder and loss must be enabled together")
+        if self.rate_separation and self.world_size != 1:
+            raise ValueError("The rate-separation experiment currently supports one GPU only")
         self.setup_train_loader()
         self.doing_eval = self.train_dataset.evaluator_cls is not None
         self.setup_eval_loader()
@@ -82,13 +87,18 @@ class NuCLRPreTrainer(Trainer):
                     X = move_to_device(X, self.device)
                     z = self.model(**X["model_inputs"])
                     assert torch.isfinite(z).all()
-
+                    rate_targets = {}
+                    if getattr(self, "rate_separation", False):
+                        rate_targets["firing_rate_hz"] = (
+                            X["model_inputs"]["bins"].float().sum(dim=1) / self.cfg.views.duration
+                        )
                     loss, loss_dict = self.ssl_loss(
                         x=z,
                         seqlen=X["unit_seqlen"],
                         unit_ids=X["unit_ids"],
                         probe_ids=X["probe_ids"],
                         prefix="train/",
+                        **rate_targets,
                     )
                     assert torch.isfinite(loss).all()
 
@@ -282,7 +292,22 @@ class NuCLRPreTrainer(Trainer):
         # Fractional epochs are useful for short diagnostic runs. SequentialLR
         # switches/reset schedulers at integer optimizer-step milestones.
         warmup_steps = round(self.cfg.lr.rise * steps_per_epoch)
-        total_steps = steps_per_epoch * self.cfg.num_epochs
+        cycle_start = self.cfg.lr.get("cycle_start_epoch", 0)
+        if not isinstance(cycle_start, int) or not 0 <= cycle_start < self.cfg.num_epochs:
+            raise ValueError("lr.cycle_start_epoch must be an integer before num_epochs")
+        restart_cycle = False
+        if ckpt is not None and self.cfg.ckpt.resume:
+            previous_cfg = DictConfig(ckpt["cfg"])
+            previous_start = previous_cfg.lr.get("cycle_start_epoch", 0)
+            restart_cycle = cycle_start != previous_start
+            if restart_cycle:
+                if cycle_start != ckpt["epoch"] + 1 or cycle_start <= previous_start:
+                    raise ValueError("A new LR cycle must start at the resumed checkpoint boundary")
+            elif self.cfg.num_epochs != previous_cfg.num_epochs:
+                raise ValueError("Changing num_epochs on resume requires an explicit new lr.cycle_start_epoch")
+        elif cycle_start != 0:
+            raise ValueError("A nonzero lr.cycle_start_epoch requires checkpoint resume")
+        total_steps = steps_per_epoch * (self.cfg.num_epochs - cycle_start)
         if not 0 < warmup_steps < total_steps:
             raise ValueError("Warmup must round to at least one step and leave at least one cosine step")
         s1 = LinearLR(
@@ -303,9 +328,19 @@ class NuCLRPreTrainer(Trainer):
 
         if ckpt is not None:
             if self.cfg.ckpt.resume:
+                starting_rates = [group["lr"] for group in self.optimizer.param_groups]
                 self.optimizer.load_state_dict(ckpt["optimizer_state_dict"])
-                self.lr_scheduler.load_state_dict(ckpt["lr_scheduler_state_dict"])
-                self.logger.info("Optimizer & Scheduler: loaded state from checkpoint")
+                if restart_cycle:
+                    for group, rate in zip(self.optimizer.param_groups, starting_rates):
+                        group["lr"] = rate
+                        group["initial_lr"] = self.cfg.lr.peak
+                    self.logger.info(
+                        f"Optimizer: restored state; new LR cycle for epochs {cycle_start + 1}–{self.cfg.num_epochs}, "
+                        f"warmup {self.cfg.lr.rise} epoch(s), peak {self.cfg.lr.peak:g}"
+                    )
+                else:
+                    self.lr_scheduler.load_state_dict(ckpt["lr_scheduler_state_dict"])
+                    self.logger.info("Optimizer & Scheduler: loaded state from checkpoint")
             else:
                 self.logger.info(
                     "Optim & Scheduler: ckpt not loaded due to ckpt.resume=false"
